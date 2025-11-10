@@ -1,15 +1,16 @@
-import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card } from '@/components/ui/card';
+// src/pages/requirements/RequirementsTable.tsx
+import { useState, useMemo, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -17,61 +18,115 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
-import { StatusBadge } from '@/components/requirements/StatusBadge';
-import { PriorityIndicator } from '@/components/requirements/PriorityIndicator';
-import { mockRequirements, filterRequirements } from '@/services/mockData';
-import { RequirementStatus, RequirementType, Priority } from '@/types/requirement.types';
-import { Search, Plus, Filter, Eye, Edit } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+} from "@/components/ui/table";
+import { StatusBadge } from "@/components/requirements/StatusBadge";
+import { PriorityIndicator } from "@/components/requirements/PriorityIndicator";
+import { Search, Plus, Filter, Eye, Edit } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
-const RequirementsTable = () => {
+import RequirementsService, {
+  Requirement,
+  RequirementStatus,
+  RequirementType,
+  Priority,
+  FilterRequirementDto,
+  ListEnvelope,
+} from "@/services/requirements.service";
+
+type Props = {
+  projectId?: string; // optionally scope to a project if you have it
+};
+
+const RequirementsTable = ({ projectId }: Props) => {
   const navigate = useNavigate();
-  const [searchQuery, setSearchQuery] = useState('');
+
+  // UI filters
+  const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<RequirementStatus[]>([]);
   const [typeFilter, setTypeFilter] = useState<RequirementType[]>([]);
   const [priorityFilter, setPriorityFilter] = useState<Priority[]>([]);
 
-  // Filter requirements based on current filters
-  const filteredRequirements = useMemo(() => {
-    return filterRequirements(mockRequirements, {
-      search: searchQuery,
-      status: statusFilter.length > 0 ? statusFilter : undefined,
-      type: typeFilter.length > 0 ? typeFilter : undefined,
-      priority: priorityFilter.length > 0 ? priorityFilter : undefined,
-    });
-  }, [searchQuery, statusFilter, typeFilter, priorityFilter]);
+  // data state
+  const [requirements, setRequirements] = useState<Requirement[]>([]);
+  const [totalCount, setTotalCount] = useState<number | null>(null); // supports envelope
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Debounce search a bit
+  const debouncedSearch = useMemo(() => {
+    const obj = { val: searchQuery };
+    return obj; // stable reference to trigger effect when searchQuery changes
+  }, [searchQuery]);
+
+  // Build API filter from UI state
+  const buildApiFilter = (): FilterRequirementDto => {
+    const filter: FilterRequirementDto = {};
+    if (projectId) filter.projectId = projectId;
+    if (statusFilter.length > 0) filter.status = statusFilter[0];
+    if (typeFilter.length > 0) filter.type = typeFilter[0];
+    if (priorityFilter.length > 0) filter.priority = priorityFilter[0];
+    if (searchQuery.trim()) filter.search = searchQuery.trim();
+    return filter;
+  };
+
+  // Fetch requirements whenever filters change
+  useEffect(() => {
+    let alive = true;
+    const t = setTimeout(async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const filter = buildApiFilter();
+        const data = await RequirementsService.findAll(filter);
+        if (!alive) return;
+
+        if (Array.isArray(data)) {
+          setRequirements(data ?? []);
+          setTotalCount(null);
+        } else {
+          const env = data as ListEnvelope<Requirement>;
+          setRequirements(env?.items ?? []);
+          setTotalCount(env?.total ?? null);
+        }
+      } catch (e: any) {
+        if (!alive) return;
+        setError(
+          e?.response?.data?.message ??
+            e?.message ??
+            "Failed to load requirements"
+        );
+      } finally {
+        if (alive) setLoading(false);
+      }
+    }, 300); // simple debounce
+
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, debouncedSearch, statusFilter, typeFilter, priorityFilter]);
 
   const handleStatusFilterChange = (value: string) => {
-    if (value === 'all') {
-      setStatusFilter([]);
-    } else {
-      setStatusFilter([value as RequirementStatus]);
-    }
+    setStatusFilter(value === "all" ? [] : [value as RequirementStatus]);
   };
 
   const handleTypeFilterChange = (value: string) => {
-    if (value === 'all') {
-      setTypeFilter([]);
-    } else {
-      setTypeFilter([value as RequirementType]);
-    }
+    setTypeFilter(value === "all" ? [] : [value as RequirementType]);
   };
 
   const handlePriorityFilterChange = (value: string) => {
-    if (value === 'all') {
-      setPriorityFilter([]);
-    } else {
-      setPriorityFilter([value as Priority]);
-    }
+    setPriorityFilter(value === "all" ? [] : [value as Priority]);
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric',
-      year: 'numeric'
+  const formatDate = (dateString?: string) => {
+    const iso = dateString ?? new Date().toISOString();
+    const date = new Date(iso);
+    if (isNaN(date.getTime())) return "—";
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
     });
   };
 
@@ -85,7 +140,10 @@ const RequirementsTable = () => {
             Manage and track all project requirements
           </p>
         </div>
-        <Button onClick={() => navigate('/requirements/new')} className="flex items-center space-x-2">
+        <Button
+          onClick={() => navigate("/requirements/new")}
+          className="flex items-center space-x-2"
+        >
           <Plus className="w-4 h-4" />
           <span>New Requirement</span>
         </Button>
@@ -114,13 +172,23 @@ const RequirementsTable = () => {
             </SelectTrigger>
             <SelectContent className="bg-white z-50">
               <SelectItem value="all">All Statuses</SelectItem>
-              <SelectItem value="draft">Draft</SelectItem>
-              <SelectItem value="in-review">In Review</SelectItem>
-              <SelectItem value="approved">Approved</SelectItem>
-              <SelectItem value="rejected">Rejected</SelectItem>
-              <SelectItem value="implemented">Implemented</SelectItem>
-              <SelectItem value="verified">Verified</SelectItem>
-              <SelectItem value="closed">Closed</SelectItem>
+              <SelectItem value={RequirementStatus.DRAFT}>Draft</SelectItem>
+              <SelectItem value={RequirementStatus.IN_REVIEW}>
+                In Review
+              </SelectItem>
+              <SelectItem value={RequirementStatus.APPROVED}>
+                Approved
+              </SelectItem>
+              <SelectItem value={RequirementStatus.REJECTED}>
+                Rejected
+              </SelectItem>
+              <SelectItem value={RequirementStatus.IMPLEMENTED}>
+                Implemented
+              </SelectItem>
+              <SelectItem value={RequirementStatus.VERIFIED}>
+                Verified
+              </SelectItem>
+              <SelectItem value={RequirementStatus.CLOSED}>Closed</SelectItem>
             </SelectContent>
           </Select>
 
@@ -131,10 +199,18 @@ const RequirementsTable = () => {
             </SelectTrigger>
             <SelectContent className="bg-white z-50">
               <SelectItem value="all">All Types</SelectItem>
-              <SelectItem value="functional">Functional</SelectItem>
-              <SelectItem value="non-functional">Non-Functional</SelectItem>
-              <SelectItem value="constraint">Constraint</SelectItem>
-              <SelectItem value="business-rule">Business Rule</SelectItem>
+              <SelectItem value={RequirementType.FUNCTIONAL}>
+                Functional
+              </SelectItem>
+              <SelectItem value={RequirementType.NON_FUNCTIONAL}>
+                Non-Functional
+              </SelectItem>
+              <SelectItem value={RequirementType.CONSTRAINT}>
+                Constraint
+              </SelectItem>
+              <SelectItem value={RequirementType.BUSINESS_RULE}>
+                Business Rule
+              </SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -144,30 +220,36 @@ const RequirementsTable = () => {
           <Filter className="w-4 h-4 text-gray-500" />
           <span className="text-sm font-medium text-gray-700">Priority:</span>
           <Button
-            variant={priorityFilter.length === 0 ? 'default' : 'outline'}
+            variant={priorityFilter.length === 0 ? "default" : "outline"}
             size="sm"
-            onClick={() => setPriorityFilter([])}
+            onClick={() => handlePriorityFilterChange("all")}
           >
             All
           </Button>
           <Button
-            variant={priorityFilter.includes('high') ? 'default' : 'outline'}
+            variant={
+              priorityFilter.includes(Priority.HIGH) ? "default" : "outline"
+            }
             size="sm"
-            onClick={() => setPriorityFilter(['high'])}
+            onClick={() => handlePriorityFilterChange(Priority.HIGH)}
           >
             High
           </Button>
           <Button
-            variant={priorityFilter.includes('medium') ? 'default' : 'outline'}
+            variant={
+              priorityFilter.includes(Priority.MEDIUM) ? "default" : "outline"
+            }
             size="sm"
-            onClick={() => setPriorityFilter(['medium'])}
+            onClick={() => handlePriorityFilterChange(Priority.MEDIUM)}
           >
             Medium
           </Button>
           <Button
-            variant={priorityFilter.includes('low') ? 'default' : 'outline'}
+            variant={
+              priorityFilter.includes(Priority.LOW) ? "default" : "outline"
+            }
             size="sm"
-            onClick={() => setPriorityFilter(['low'])}
+            onClick={() => handlePriorityFilterChange(Priority.LOW)}
           >
             Low
           </Button>
@@ -177,9 +259,30 @@ const RequirementsTable = () => {
       {/* Results Count */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Showing <span className="font-medium text-foreground">{filteredRequirements.length}</span> of{' '}
-          <span className="font-medium text-foreground">{mockRequirements.length}</span> requirements
+          {loading ? (
+            <>Loading…</>
+          ) : (
+            <>
+              Showing{" "}
+              <span className="font-medium text-foreground">
+                {(requirements ?? []).length}
+              </span>
+              {typeof totalCount === "number" ? (
+                <>
+                  {" "}
+                  of{" "}
+                  <span className="font-medium text-foreground">
+                    {totalCount}
+                  </span>{" "}
+                  requirements
+                </>
+              ) : (
+                <> requirements</>
+              )}
+            </>
+          )}
         </p>
+        {error && <p className="text-sm text-red-600">{error}</p>}
       </div>
 
       {/* Requirements Table */}
@@ -198,88 +301,99 @@ const RequirementsTable = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredRequirements.length === 0 ? (
+            {!loading && (requirements ?? []).length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} className="text-center py-12">
                   <div className="flex flex-col items-center space-y-2">
                     <Search className="w-12 h-12 text-gray-300" />
                     <p className="text-gray-500">No requirements found</p>
-                    <p className="text-sm text-gray-400">Try adjusting your filters</p>
+                    <p className="text-sm text-gray-400">
+                      Try adjusting your filters
+                    </p>
                   </div>
                 </TableCell>
               </TableRow>
             ) : (
-              filteredRequirements.map((requirement) => (
-                <TableRow
-                  key={requirement.id}
-                  className="cursor-pointer hover:bg-gray-50"
-                  onClick={() => navigate(`/requirements/${requirement.id}`)}
-                >
-                  <TableCell className="font-mono text-sm font-medium">
-                    {requirement.reqId}
-                  </TableCell>
-                  <TableCell>
-                    <div className="max-w-md">
-                      <p className="font-medium truncate">{requirement.title}</p>
-                      <p className="text-sm text-muted-foreground truncate mt-1">
-                        {requirement.description}
-                      </p>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <span className="text-sm capitalize">
-                      {requirement.type.replace('-', ' ')}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge status={requirement.status} />
-                  </TableCell>
-                  <TableCell>
-                    <PriorityIndicator priority={requirement.priority} showLabel />
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {requirement.tags.slice(0, 2).map((tag) => (
-                        <Badge key={tag} variant="outline" className="text-xs">
-                          {tag}
-                        </Badge>
-                      ))}
-                      {requirement.tags.length > 2 && (
-                        <Badge variant="outline" className="text-xs">
-                          +{requirement.tags.length - 2}
-                        </Badge>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {formatDate(requirement.updatedAt)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end space-x-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/requirements/${requirement.id}`);
-                        }}
-                      >
-                        <Eye className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/requirements/${requirement.id}/edit`);
-                        }}
-                      >
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
+              (requirements ?? []).map((requirement) => {
+                const tags = requirement.tags ?? [];
+                const typeLabel = (requirement.type ?? "").toString().replace("-", " ");
+                const when = requirement.updatedAt ?? requirement.createdAt;
+
+                return (
+                  <TableRow
+                    key={requirement._id}
+                    className="cursor-pointer hover:bg-gray-50"
+                    onClick={() => navigate(`/requirements/${requirement._id}`)}
+                  >
+                    <TableCell className="font-mono text-sm font-medium">
+                      {requirement.reqId ?? "—"}
+                    </TableCell>
+                    <TableCell>
+                      <div className="max-w-md">
+                        <p className="font-medium truncate">
+                          {requirement.title ?? "Untitled"}
+                        </p>
+                        <p className="text-sm text-muted-foreground truncate mt-1">
+                          {requirement.description ?? ""}
+                        </p>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm capitalize">{typeLabel}</span>
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge status={requirement.status ?? RequirementStatus.DRAFT} />
+                    </TableCell>
+                    <TableCell>
+                      <PriorityIndicator
+                        priority={requirement.priority ?? Priority.MEDIUM}
+                        showLabel
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {tags.slice(0, 2).map((tag) => (
+                          <Badge key={tag} variant="outline" className="text-xs">
+                            {tag}
+                          </Badge>
+                        ))}
+                        {tags.length > 2 && (
+                          <Badge variant="outline" className="text-xs">
+                            +{tags.length - 2}
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {formatDate(when)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end space-x-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/requirements/${requirement._id}`);
+                          }}
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/requirements/${requirement._id}/edit`);
+                          }}
+                        >
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
