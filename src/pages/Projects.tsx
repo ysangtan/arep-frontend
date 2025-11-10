@@ -1,34 +1,49 @@
 // src/pages/projects/Projects.tsx
-import { useState, useEffect, useMemo } from 'react';
-import { Plus, Search, Filter, MoreHorizontal, Archive, Settings, FolderKanban } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { useState, useEffect } from "react";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table';
+  Plus,
+  Search,
+  Filter,
+  MoreHorizontal,
+  Archive,
+  Settings,
+  FolderKanban,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Badge } from '@/components/ui/badge';
-import { CreateProjectDialog } from '@/components/projects/CreateProjectDialog';
-import { formatDistanceToNow } from 'date-fns';
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/badge";
+import { CreateProjectDialog } from "@/components/projects/CreateProjectDialog";
+import { formatDistanceToNow } from "date-fns";
 
 // ✅ use the real service
 import ProjectsService, {
   Project as ApiProject,
   ProjectTemplate as ApiProjectTemplate,
   ProjectStatus as ApiProjectStatus,
-} from '@/services/project.service';
+} from "@/services/project.service"; // <-- ensure this path (plural)
 
-// ---- UI Row type used by this table (matches what your table renders) ----
 type RowProject = {
   id: string;
   name: string;
   key: string;
   description?: string;
-  template: string;        // e.g. "blank"
-  ownerName: string;       // we don't have this yet; placeholder
-  status: string;          // "active" | "archived" | "on-hold"
+  template: string;
+  ownerName: string;
+  status: string; // "active" | "archived" | "on-hold"
   requirementCount: number;
   updatedAt: string;
 };
@@ -36,20 +51,20 @@ type RowProject = {
 export default function Projects() {
   const [projects, setProjects] = useState<RowProject[]>([]);
   const [filteredProjects, setFilteredProjects] = useState<RowProject[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState("");
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Adapter from API model to row model the UI expects
   const toRow = (p: ApiProject): RowProject => ({
     id: p._id,
-    name: p.name ?? '',
-    key: (p.key ?? '').toUpperCase(),
-    description: p.description ?? '',
+    name: p.name ?? "",
+    key: (p.key ?? "").toUpperCase(),
+    description: p.description ?? "",
     template: (p.template ?? ApiProjectTemplate.BLANK) as string,
-    ownerName: '-', // TODO: resolve owner name if/when backend returns it
+    ownerName: "-", // until backend returns owner display name
     status: (p.status ?? ApiProjectStatus.ACTIVE) as string,
-    requirementCount: typeof p.requirementCount === 'number' ? p.requirementCount : 0,
+    requirementCount:
+      typeof p.requirementCount === "number" ? p.requirementCount : 0,
     updatedAt: p.updatedAt ?? p.createdAt ?? new Date().toISOString(),
   });
 
@@ -58,18 +73,23 @@ export default function Projects() {
       setIsLoading(true);
       const res = await ProjectsService.findAll();
       const list = Array.isArray(res) ? res : res.items;
+      console.log("Loaded projects:", list, "raw", res);
+
       setProjects((list ?? []).map(toRow));
+      setFilteredProjects((list ?? []).map(toRow));
     } catch (error) {
-      console.error('Failed to load projects:', error);
+      console.error("Failed to load projects:", error);
       setProjects([]);
+      setFilteredProjects([]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  useEffect(() => { loadProjects(); }, []);
+  useEffect(() => {
+    loadProjects();
+  }, []);
 
-  // simple client filter
   useEffect(() => {
     if (!searchQuery.trim()) {
       setFilteredProjects(projects);
@@ -81,29 +101,32 @@ export default function Projects() {
         (p) =>
           p.name.toLowerCase().includes(q) ||
           p.key.toLowerCase().includes(q) ||
-          (p.ownerName ?? '').toLowerCase().includes(q)
+          (p.ownerName ?? "").toLowerCase().includes(q)
       )
     );
   }, [projects, searchQuery]);
 
   const getTemplateLabel = (template: string) => {
     const labels: Record<string, string> = {
-      [ApiProjectTemplate.BLANK]: 'Blank',
-      [ApiProjectTemplate.SOFTWARE_DEV]: 'Software Dev',
-      [ApiProjectTemplate.MOBILE_APP]: 'Mobile App',
-      [ApiProjectTemplate.ENTERPRISE]: 'Enterprise',
-      [ApiProjectTemplate.API]: 'API',
+      [ApiProjectTemplate.BLANK]: "Blank",
+      [ApiProjectTemplate.SOFTWARE_DEV]: "Software Dev",
+      [ApiProjectTemplate.MOBILE_APP]: "Mobile App",
+      [ApiProjectTemplate.ENTERPRISE]: "Enterprise",
+      [ApiProjectTemplate.API]: "API",
     };
     return labels[template] || template;
   };
 
   const getStatusColor = (status: string) => {
-    const colors: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-      [ApiProjectStatus.ACTIVE]: 'default',
-      [ApiProjectStatus.ARCHIVED]: 'secondary',
-      [ApiProjectStatus.ON_HOLD]: 'outline',
+    const colors: Record<
+      string,
+      "default" | "secondary" | "destructive" | "outline"
+    > = {
+      [ApiProjectStatus.ACTIVE]: "default",
+      [ApiProjectStatus.ARCHIVED]: "secondary",
+      [ApiProjectStatus.ON_HOLD]: "outline",
     };
-    return colors[status] || 'default';
+    return colors[status] || "default";
   };
 
   return (
@@ -156,7 +179,10 @@ export default function Projects() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                <TableCell
+                  colSpan={8}
+                  className="text-center py-12 text-muted-foreground"
+                >
                   Loading projects...
                 </TableCell>
               </TableRow>
@@ -166,10 +192,16 @@ export default function Projects() {
                   <div className="flex flex-col items-center gap-2">
                     <FolderKanban className="h-12 w-12 text-muted-foreground/50" />
                     <p className="text-muted-foreground">
-                      {searchQuery ? 'No projects found matching your search' : 'No projects yet'}
+                      {searchQuery
+                        ? "No projects found matching your search"
+                        : "No projects yet"}
                     </p>
                     {!searchQuery && (
-                      <Button variant="outline" onClick={() => setIsCreateDialogOpen(true)} className="mt-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => setIsCreateDialogOpen(true)}
+                        className="mt-2"
+                      >
                         <Plus className="mr-2 h-4 w-4" />
                         Create your first project
                       </Button>
@@ -179,7 +211,10 @@ export default function Projects() {
               </TableRow>
             ) : (
               (filteredProjects ?? []).map((project) => (
-                <TableRow key={project.id} className="cursor-pointer hover:bg-muted/50">
+                <TableRow
+                  key={project.id}
+                  className="cursor-pointer hover:bg-muted/50"
+                >
                   <TableCell>
                     <div className="flex flex-col">
                       <span className="font-medium">{project.name}</span>
@@ -194,10 +229,12 @@ export default function Projects() {
                     <Badge variant="outline">{project.key}</Badge>
                   </TableCell>
                   <TableCell>
-                    <span className="text-sm">{getTemplateLabel(project.template)}</span>
+                    <span className="text-sm">
+                      {getTemplateLabel(project.template)}
+                    </span>
                   </TableCell>
                   <TableCell>
-                    <span className="text-sm">{project.ownerName || '-'}</span>
+                    <span className="text-sm">{project.ownerName || "-"}</span>
                   </TableCell>
                   <TableCell>
                     <Badge variant={getStatusColor(project.status)}>
@@ -209,7 +246,9 @@ export default function Projects() {
                   </TableCell>
                   <TableCell>
                     <span className="text-sm text-muted-foreground">
-                      {formatDistanceToNow(new Date(project.updatedAt), { addSuffix: true })}
+                      {formatDistanceToNow(new Date(project.updatedAt), {
+                        addSuffix: true,
+                      })}
                     </span>
                   </TableCell>
                   <TableCell>

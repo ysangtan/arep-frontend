@@ -16,7 +16,7 @@ export enum ProjectTemplate {
   API = 'api',
 }
 
-// --------- Types ----------
+// --- Types ---
 export interface ProjectMember {
   userId: string;
   role?: string;
@@ -26,58 +26,36 @@ export interface ProjectMember {
 export interface Project {
   _id: string;
   name: string;
-  key?: string;
+  key: string; // required on backend
   description?: string;
-  ownerId: string;
   template?: ProjectTemplate;
   status?: ProjectStatus;
+  ownerId: string;
   members?: ProjectMember[];
   requirementCount?: number;
   createdAt: string;
   updatedAt: string;
 }
 
-// --------- Types (adjust to your actual schema as needed) ----------
-export interface ProjectMember {
-  userId: string;
-  role?: string;          // e.g. "member", "manager" (optional—depends on your model)
-  joinedAt?: string;      // ISO string
-}
-
-export interface Project {
-  _id: string;
-  name: string;
-  key?: string;           // e.g., "ECP"
-  description?: string;
-  ownerId: string;
-  members?: ProjectMember[];
-  tags?: string[];
-  createdAt: string;
-  updatedAt: string;
-  // add any other fields your schema returns
-}
-
-// Create/Update DTOs — mirror your backend DTOs
+// --- DTOs (mirror backend DTOs exactly) ---
 export interface CreateProjectDto {
   name: string;
-  key?: string;
+  key: string; // required
   description?: string;
-  tags?: string[];
-  // ownerId is set server-side from @CurrentUser in controller
+  template?: ProjectTemplate; // optional on backend
+  status?: ProjectStatus;     // optional on backend
 }
 
 export interface UpdateProjectDto {
   name?: string;
-  key?: string;
   description?: string;
-  tags?: string[];
+  status?: ProjectStatus;     // optional on backend
 }
 
 export interface AddMemberDto {
   userId: string;
 }
 
-// Optional pagination envelope (if you later switch to paginated lists)
 export interface ListEnvelope<T> {
   items: T[];
   total: number;
@@ -85,6 +63,11 @@ export interface ListEnvelope<T> {
   limit: number;
 }
 
+type ApiWrap<T> = { success?: boolean; data: T; message?: string };
+
+function unwrap<T>(payload: T | ApiWrap<T>): T {
+  return (payload as any)?.data ?? (payload as T);
+}
 const base = '/projects';
 
 // --------- Service ----------
@@ -95,7 +78,7 @@ export const ProjectsService = {
    */
   async findAll(): Promise<Project[] | ListEnvelope<Project>> {
     const { data } = await api.get<Project[] | ListEnvelope<Project>>(base);
-    return data;
+    return unwrap(data);
   },
 
   /**
