@@ -104,6 +104,14 @@ const toQuery = (params: Record<string, unknown> = {}) =>
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
     .join('&');
 
+    
+    
+
+type ApiWrap<T> = { success?: boolean; data: T; message?: string };
+
+function unwrap<T>(payload: T | ApiWrap<T>): T {
+  return (payload as any)?.data ?? (payload as T);
+}
 const base = '/requirements';
 
 // If your backend returns a paginated envelope, define it here and swap in below as needed.
@@ -122,7 +130,7 @@ export const RequirementsService = {
   async findAll(filter: FilterRequirementDto = {}): Promise<Requirement[] | ListEnvelope<Requirement>> {
     const qs = toQuery(filter);
     const { data } = await api.get<Requirement[] | ListEnvelope<Requirement>>(`${base}${qs ? `?${qs}` : ''}`);
-    return data;
+    return unwrap(data);
   },
 
   // GET /requirements/search?projectId=...&q=...
