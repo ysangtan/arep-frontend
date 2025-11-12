@@ -1,25 +1,55 @@
 import { useParams, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatusBadge } from '@/components/requirements/StatusBadge';
 import { PriorityIndicator } from '@/components/requirements/PriorityIndicator';
-import { getRequirementById } from '@/services/mockData';
+import RequirementsService from '@/services/requirements.service'; // <-- update import to correct path
 import { ArrowLeft, Edit, Trash2, Clock, User, Tag, CheckSquare } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import type { Requirement } from '@/services/requirements.service';
 
 const RequirementDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
-  const requirement = getRequirementById(id || '');
+  const [requirement, setRequirement] = useState<Requirement | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
-  if (!requirement) {
+  useEffect(() => {
+    if (!id) return;
+    const fetchRequirement = async () => {
+      try {
+        setLoading(true);
+        const data = await RequirementsService.findOne(id);
+        setRequirement(data);
+      } catch (err: any) {
+        console.error('Failed to fetch requirement:', err);
+        setError('Failed to fetch requirement');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRequirement();
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center py-12">
+        <p className="text-muted-foreground">Loading requirement details...</p>
+      </div>
+    );
+  }
+
+  if (error || !requirement) {
     return (
       <div className="text-center py-12">
         <h2 className="text-2xl font-bold text-gray-900">Requirement Not Found</h2>
         <p className="text-muted-foreground mt-2">
-          The requirement you're looking for doesn't exist.
+          {error || "The requirement you're looking for doesn't exist."}
         </p>
         <Button onClick={() => navigate('/requirements')} className="mt-4">
           Back to Requirements
@@ -44,11 +74,7 @@ const RequirementDetail = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => navigate('/requirements')}
-          >
+          <Button variant="ghost" size="icon" onClick={() => navigate('/requirements')}>
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
@@ -64,12 +90,25 @@ const RequirementDetail = () => {
         <div className="flex items-center space-x-2">
           <Button
             variant="outline"
-            onClick={() => navigate(`/requirements/${requirement.id}/edit`)}
+            onClick={() => navigate(`/requirements/${requirement._id}/edit`)}
           >
             <Edit className="w-4 h-4 mr-2" />
             Edit
           </Button>
-          <Button variant="outline" className="text-red-600 hover:text-red-700">
+          <Button
+            variant="outline"
+            className="text-red-600 hover:text-red-700"
+            onClick={async () => {
+              if (confirm('Are you sure you want to delete this requirement?')) {
+                try {
+                  await RequirementsService.remove(requirement._id);
+                  navigate('/requirements');
+                } catch (err) {
+                  console.error('Delete failed:', err);
+                }
+              }
+            }}
+          >
             <Trash2 className="w-4 h-4 mr-2" />
             Delete
           </Button>
@@ -99,7 +138,7 @@ const RequirementDetail = () => {
             </CardHeader>
             <CardContent>
               <ul className="space-y-3">
-                {requirement.acceptanceCriteria.map((criteria, index) => (
+                {requirement.acceptanceCriteria?.map((criteria, index) => (
                   <li key={index} className="flex items-start space-x-3">
                     <div className="mt-1 w-5 h-5 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
                       <span className="text-xs font-medium text-primary">{index + 1}</span>
@@ -112,7 +151,7 @@ const RequirementDetail = () => {
           </Card>
 
           {/* Validation Warnings */}
-          {requirement.validationWarnings && requirement.validationWarnings.length > 0 && (
+          {requirement.validationWarnings?.length > 0 && (
             <Card className="border-orange-200 bg-orange-50">
               <CardHeader>
                 <CardTitle className="text-orange-700">Validation Warnings</CardTitle>
@@ -144,7 +183,7 @@ const RequirementDetail = () => {
 
         {/* Sidebar */}
         <div className="space-y-6">
-          {/* Details Card */}
+          {/* Details */}
           <Card>
             <CardHeader>
               <CardTitle>Details</CardTitle>
@@ -168,7 +207,7 @@ const RequirementDetail = () => {
                   <span>Assignee</span>
                 </div>
                 <p className="text-sm font-medium pl-6">
-                  {requirement.assignee ? 'Assigned User' : 'Unassigned'}
+                  {requirement.assigneeId ? 'Assigned User' : 'Unassigned'}
                 </p>
               </div>
 
@@ -179,7 +218,7 @@ const RequirementDetail = () => {
                   <User className="w-4 h-4" />
                   <span>Created By</span>
                 </div>
-                <p className="text-sm font-medium pl-6">Emily Johnson</p>
+                <p className="text-sm font-medium pl-6">{requirement.createdBy}</p>
               </div>
 
               <Separator />
@@ -204,7 +243,7 @@ const RequirementDetail = () => {
             </CardContent>
           </Card>
 
-          {/* Tags Card */}
+          {/* Tags */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
@@ -223,7 +262,7 @@ const RequirementDetail = () => {
             </CardContent>
           </Card>
 
-          {/* Traceability Card */}
+          {/* Traceability */}
           <Card>
             <CardHeader>
               <CardTitle>Traceability Links</CardTitle>

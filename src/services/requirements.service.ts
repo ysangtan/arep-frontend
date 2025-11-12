@@ -143,7 +143,7 @@ export const RequirementsService = {
   // GET /requirements/:id
   async findOne(id: string): Promise<Requirement> {
     const { data } = await api.get<Requirement>(`${base}/${id}`);
-    return data;
+    return unwrap(data);
   },
 
   // POST /requirements
