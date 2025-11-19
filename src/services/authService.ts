@@ -1,128 +1,161 @@
-import api from './api';
-import { User, AuthResponse, LoginCredentials, RegisterData } from '@/types/user.types';
+// authService.ts
+import api from "./api";
+import {
+  User,
+  AuthResponse,
+  LoginCredentials,
+  RegisterData,
+} from "@/types/user.types";
+
+const ACCESS_TOKEN_KEY = "arep_token";
+const REFRESH_TOKEN_KEY = "arep_refresh_token";
+const USER_KEY = "arep_user";
 
 // Mock data for frontend development
 const MOCK_USERS: User[] = [
   {
-    id: '1',
-    email: 'admin@arep.com',
-    fullName: 'Admin User',
-    role: 'admin',
-    status: 'active',
+    id: "1",
+    email: "admin@arep.com",
+    fullName: "Admin User",
+    role: "admin",
+    status: "active",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
   {
-    id: '2',
-    email: 'ba@arep.com',
-    fullName: 'Emily Johnson',
-    role: 'ba',
-    status: 'active',
+    id: "2",
+    email: "ba@arep.com",
+    fullName: "Emily Johnson",
+    role: "ba",
+    status: "active",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
 ];
 
-// Use mock mode for development until backend is ready
-const USE_MOCK = true;
+// Toggle via env if you want: const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true';
+const USE_MOCK = false;
+
+// Allow either {accessToken} or {token}
+type AnyAuthResponse = {
+  user: User;
+  accessToken?: string;
+  token?: string;
+  refreshToken: string;
+};
+// helpers at top of file (below imports)
+type RawAuth = {
+  user: User;
+  accessToken?: string;
+  token?: string;
+  refreshToken: string;
+};
+const unwrapAuth = (raw: any): RawAuth => (raw?.data ? raw.data : raw); // <-- unwrap { data: ... }
+
+// keep your existing persistSession, but it expects access token present
+function persistSession(res: RawAuth) {
+  const access = res.accessToken ?? res.token;
+  if (!access) throw new Error("Missing access token");
+  localStorage.setItem("arep_token", access);
+  localStorage.setItem("arep_refresh_token", res.refreshToken);
+  localStorage.setItem("arep_user", JSON.stringify(res.user));
+}
 
 class AuthService {
   async login(credentials: LoginCredentials): Promise<AuthResponse> {
     if (USE_MOCK) {
-      // Mock login
-      await new Promise(resolve => setTimeout(resolve, 500)); // Simulate network delay
-      
-      const user = MOCK_USERS.find(u => u.email === credentials.email);
-      if (!user || credentials.password !== 'password123') {
-        throw new Error('Invalid credentials');
-      }
+      await new Promise((r) => setTimeout(r, 500));
+      const user = MOCK_USERS.find((u) => u.email === credentials.email);
+      if (!user || credentials.password !== "password123")
+        throw new Error("Invalid credentials");
 
-      const mockResponse: AuthResponse = {
+      const mockResponse: AnyAuthResponse = {
         user,
-        token: 'mock-jwt-token-' + user.id,
-        refreshToken: 'mock-refresh-token-' + user.id,
+        accessToken: "mock-jwt-token-" + user.id,
+        refreshToken: "mock-refresh-token-" + user.id,
       };
+      persistSession(mockResponse);
 
-      // Store token
-      localStorage.setItem('arep_token', mockResponse.token);
-      localStorage.setItem('arep_user', JSON.stringify(user));
-
-      return mockResponse;
+      // normalize return to your AuthResponse type
+      return {
+        user,
+        token: mockResponse.accessToken!,
+        refreshToken: mockResponse.refreshToken,
+      } as unknown as AuthResponse;
     }
 
-    // Real API call (when backend is ready)
-    const response = await api.post<AuthResponse>('/auth/login', credentials);
-    
-    // Store token
-    localStorage.setItem('arep_token', response.data.token);
-    localStorage.setItem('arep_user', JSON.stringify(response.data.user));
-    
-    return response.data;
+    const { data } = await api.post("/auth/login", credentials);
+    const auth = unwrapAuth(data);
+    persistSession(auth);
+    return {
+      user: auth.user,
+      token: auth.accessToken ?? auth.token!,
+      refreshToken: auth.refreshToken,
+    } as AuthResponse;
   }
 
-  async register(data: RegisterData): Promise<AuthResponse> {
+  async register(payload: RegisterData): Promise<AuthResponse> {
     if (USE_MOCK) {
-      // Mock register
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
+      await new Promise((r) => setTimeout(r, 500));
       const newUser: User = {
         id: String(MOCK_USERS.length + 1),
-        email: data.email,
-        fullName: data.fullName,
-        role: data.role || 'viewer',
-        status: 'active',
+        email: payload.email,
+        fullName: payload.fullName,
+        role: payload.role || "viewer",
+        status: "active",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-
       MOCK_USERS.push(newUser);
 
-      const mockResponse: AuthResponse = {
+      const mockResponse: AnyAuthResponse = {
         user: newUser,
-        token: 'mock-jwt-token-' + newUser.id,
-        refreshToken: 'mock-refresh-token-' + newUser.id,
+        accessToken: "mock-jwt-token-" + newUser.id,
+        refreshToken: "mock-refresh-token-" + newUser.id,
       };
+      persistSession(mockResponse);
 
-      localStorage.setItem('arep_token', mockResponse.token);
-      localStorage.setItem('arep_user', JSON.stringify(newUser));
-
-      return mockResponse;
+      return {
+        user: newUser,
+        token: mockResponse.accessToken!,
+        refreshToken: mockResponse.refreshToken,
+      } as unknown as AuthResponse;
     }
 
-    const response = await api.post<AuthResponse>('/auth/register', data);
-    
-    localStorage.setItem('arep_token', response.data.token);
-    localStorage.setItem('arep_user', JSON.stringify(response.data.user));
-    
-    return response.data;
+    const { data } = await api.post("/auth/register", payload);
+    const auth = unwrapAuth(data);
+    persistSession(auth);
+    return {
+      user: auth.user,
+      token: auth.accessToken ?? auth.token!,
+      refreshToken: auth.refreshToken,
+    } as AuthResponse;
   }
 
   async logout(): Promise<void> {
-    if (USE_MOCK) {
-      await new Promise(resolve => setTimeout(resolve, 200));
-      localStorage.removeItem('arep_token');
-      localStorage.removeItem('arep_user');
-      return;
+    try {
+      if (!USE_MOCK) {
+        await api.post("/auth/logout");
+      }
+    } finally {
+      localStorage.removeItem(ACCESS_TOKEN_KEY);
+      localStorage.removeItem(REFRESH_TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
     }
-
-    await api.post('/auth/logout');
-    localStorage.removeItem('arep_token');
-    localStorage.removeItem('arep_user');
   }
 
   getCurrentUser(): User | null {
-    const userStr = localStorage.getItem('arep_user');
-    if (!userStr) return null;
-    
+    const str = localStorage.getItem(USER_KEY);
+    if (!str) return null;
     try {
-      return JSON.parse(userStr);
+      return JSON.parse(str) as User;
     } catch {
       return null;
     }
   }
 
   isAuthenticated(): boolean {
-    return !!localStorage.getItem('arep_token');
+    return !!localStorage.getItem(ACCESS_TOKEN_KEY);
   }
 }
 

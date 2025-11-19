@@ -6,27 +6,40 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
-import { ShieldCheck, CheckCircle, Users, AlertCircle } from 'lucide-react';
+import { ShieldCheck, CheckCircle, AlertCircle } from 'lucide-react';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [localLoading, setLocalLoading] = useState(false);
   const [error, setError] = useState('');
-  const { login } = useAuth();
+  const { login, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  const isBusy = localLoading || authLoading;
+
+  const extractErrorMessage = (err: any) => {
+    // Prefer backend-provided messages if available (NestJS often returns { message } or { message: string[] })
+    const msg =
+      err?.response?.data?.message ??
+      err?.message ??
+      'Invalid credentials. Please try again.';
+    return Array.isArray(msg) ? msg.join(', ') : msg;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isBusy) return;
+
     setError('');
-    
+
     if (!email || !password) {
       setError('Please fill in all fields');
       return;
     }
 
-    setLoading(true);
+    setLocalLoading(true);
     try {
       await login(email, password);
       toast({
@@ -35,9 +48,9 @@ const Login = () => {
       });
       navigate('/dashboard');
     } catch (err: any) {
-      setError(err.message || 'Invalid credentials. Please try again.');
+      setError(extractErrorMessage(err));
     } finally {
-      setLoading(false);
+      setLocalLoading(false);
     }
   };
 
@@ -48,7 +61,7 @@ const Login = () => {
         {/* Decorative circles */}
         <div className="absolute top-20 right-20 w-64 h-64 bg-primary-400/30 rounded-full blur-3xl" />
         <div className="absolute bottom-20 left-20 w-80 h-80 bg-primary-700/30 rounded-full blur-3xl" />
-        
+
         <div className="relative z-10">
           {/* Logo */}
           <div className="flex items-center gap-3 mb-16">
@@ -64,9 +77,7 @@ const Login = () => {
           </div>
 
           {/* Main Content */}
-          <h2 className="text-4xl font-bold text-white mb-4">
-            Welcome to AREP
-          </h2>
+          <h2 className="text-4xl font-bold text-white mb-4">Welcome to AREP</h2>
           <p className="text-white/90 text-lg leading-relaxed mb-12">
             Streamline your requirements engineering process with powerful collaboration tools and intelligent workflows.
           </p>
@@ -93,12 +104,8 @@ const Login = () => {
       <div className="flex-1 flex items-center justify-center p-8 bg-background">
         <div className="w-full max-w-md">
           <div className="mb-8">
-            <h1 className="text-3xl font-bold text-foreground mb-2">
-              Sign in to your account
-            </h1>
-            <p className="text-muted-foreground">
-              Welcome back! Please sign in to continue.
-            </p>
+            <h1 className="text-3xl font-bold text-foreground mb-2">Sign in to your account</h1>
+            <p className="text-muted-foreground">Welcome back! Please sign in to continue.</p>
           </div>
 
           {/* Error Alert */}
@@ -110,14 +117,10 @@ const Login = () => {
             </Alert>
           )}
 
-          {/* Social Login Buttons */}
+          {/* Social Login Buttons (disabled placeholders) */}
           <div className="space-y-3 mb-6">
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full h-12"
-              disabled
-            >
+            <Button type="button" variant="outline" className="w-full h-12" disabled>
+              {/* Google icon */}
               <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
                 <path
                   fill="currentColor"
@@ -139,12 +142,8 @@ const Login = () => {
               Continue with Google
             </Button>
 
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full h-12"
-              disabled
-            >
+            <Button type="button" variant="outline" className="w-full h-12" disabled>
+              {/* GitHub icon */}
               <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
                 <path
                   fillRule="evenodd"
@@ -161,9 +160,7 @@ const Login = () => {
               <span className="w-full border-t" />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">
-                Or continue with email
-              </span>
+              <span className="bg-background px-2 text-muted-foreground">Or continue with email</span>
             </div>
           </div>
 
@@ -174,10 +171,11 @@ const Login = () => {
               <Input
                 id="email"
                 type="email"
+                autoComplete="email"
                 placeholder="you@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                disabled={loading}
+                disabled={isBusy}
                 className="h-12"
               />
             </div>
@@ -187,29 +185,23 @@ const Login = () => {
               <Input
                 id="password"
                 type="password"
+                autoComplete="current-password"
                 placeholder="Enter your password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                disabled={loading}
+                disabled={isBusy}
                 className="h-12"
               />
             </div>
 
             <div className="flex items-center justify-between text-sm">
-              <Link
-                to="/forgot-password"
-                className="text-primary hover:text-primary-600 font-medium"
-              >
+              <Link to="/forgot-password" className="text-primary hover:text-primary-600 font-medium">
                 Forgot password?
               </Link>
             </div>
 
-            <Button
-              type="submit"
-              className="w-full h-12"
-              disabled={loading}
-            >
-              {loading ? 'Signing in...' : 'Sign in'}
+            <Button type="submit" className="w-full h-12" disabled={isBusy}>
+              {isBusy ? 'Signing in...' : 'Sign in'}
             </Button>
           </form>
 
@@ -217,17 +209,18 @@ const Login = () => {
           <div className="mt-6 p-4 bg-muted rounded-lg">
             <p className="text-sm font-medium text-foreground mb-2">Demo Credentials:</p>
             <div className="text-xs space-y-1 text-muted-foreground">
-              <p><strong>Admin:</strong> admin@arep.com / password123</p>
-              <p><strong>BA:</strong> ba@arep.com / password123</p>
+              <p>
+                <strong>Admin:</strong> admin@arep.com / password123
+              </p>
+              <p>
+                <strong>BA:</strong> ba@arep.com / password123
+              </p>
             </div>
           </div>
 
           <div className="mt-6 text-center text-sm">
             <span className="text-muted-foreground">Don't have an account? </span>
-            <Link
-              to="/register"
-              className="text-primary hover:text-primary-600 font-medium"
-            >
+            <Link to="/register" className="text-primary hover:text-primary-600 font-medium">
               Sign up
             </Link>
           </div>

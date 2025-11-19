@@ -1,3 +1,4 @@
+// src/contexts/AuthContext.tsx
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User } from '@/types/user.types';
 import { authService } from '@/services/authService';
@@ -18,25 +19,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is already logged in
-    const currentUser = authService.getCurrentUser();
-    setUser(currentUser);
+    setUser(authService.getCurrentUser());
     setLoading(false);
   }, []);
 
   const login = async (email: string, password: string) => {
-    const response = await authService.login({ email, password });
-    setUser(response.user);
+    setLoading(true);
+    try {
+      const res = await authService.login({ email, password });
+      setUser(res.user);
+    } finally {
+      setLoading(false);
+    }
   };
 
+  // ✅ integrates authService.register into the frontend
   const register = async (email: string, password: string, fullName: string) => {
-    const response = await authService.register({ email, password, fullName });
-    setUser(response.user);
+    setLoading(true);
+    try {
+      const res = await authService.register({ email, password, fullName }); // role defaults in service
+      setUser(res.user);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const logout = async () => {
-    await authService.logout();
-    setUser(null);
+    setLoading(true);
+    try {
+      await authService.logout();
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
