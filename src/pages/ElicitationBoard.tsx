@@ -239,87 +239,109 @@ const ElicitationBoard = () => {
     }
   };
 
-  const handleSaveCard = async (data: Partial<ElicitationCard>) => {
-    // When editing: API has only title/description fields; we keep board metadata client-side
-    if (data.id) {
-      // optimistic update
-      const prev = cards;
-      const next = prev.map(card =>
-        card.id === data.id
-          ? { ...card, ...data, updatedAt: new Date().toISOString() }
-          : card
-      );
-      setCards(next);
+ // --- in ElicitationBoard.tsx ---
+const handleSaveCard = async (data: Partial<ElicitationCard>) => {
+  // EDIT MODE
+  if (data.id) {
+    // keep client-only board metadata and optimistic update the rest
+    const prev = cards;
+    const next = prev.map(card =>
+      card.id === data.id
+        ? {
+            ...card,
+            title: data.title ?? card.title,
+            description: data.description ?? card.description,
+            // keep board-only fields as-is (column/priority/tags/position)
+            updatedAt: new Date().toISOString(),
+          }
+        : card
+    );
+    setCards(next);
 
-      try {
-        await ElicitationService.update(data.id, {
-          title: data.title,
-          description: data.description,
-        });
-        toast({ title: 'Card Updated', description: 'Changes have been saved.' });
-      } catch (err: any) {
-        setCards(prev); // revert
-        toast({
-          title: 'Update failed',
-          description: err?.message ?? 'Could not update the item.',
-          variant: 'destructive',
-        });
-      }
-    } else {
-      // creating
-      if (!project?.id) {
-        toast({
-          title: 'Missing project',
-          description: 'Select a project before creating cards.',
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      // For now we use a known user id from your mock or auth store.
-      const createdBy = '2';
-
-      // Optimistic local card (temporary id)
-      const tempId = `temp-${Date.now()}`;
-      const newCard: ElicitationCard = {
-        id: tempId,
-        title: data.title!,
+    try {
+      await ElicitationService.update(data.id, {
+        title: data.title,
         description: data.description,
-        column: data.column || defaultColumn || 'backlog',
-        position: cards.filter(c => c.column === (data.column || defaultColumn || 'backlog')).length,
-        priority: data.priority || 'medium',
-        tags: data.tags || [],
-        createdBy,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      setCards(prev => [...prev, newCard]);
-
-      try {
-        const created = await ElicitationService.create({
-          projectId: project.id,
-          title: data.title!,
-          description: data.description,
-          createdBy,
-        } as any);
-
-        // Replace temp with server item
-        setCards(prev =>
-          prev.map(c => (c.id === tempId ? apiItemToCard(created as any, newCard.position) : c))
-        );
-
-        toast({ title: 'Card Created', description: 'New card has been added.' });
-      } catch (err: any) {
-        // remove temp on error
-        setCards(prev => prev.filter(c => c.id !== tempId));
-        toast({
-          title: 'Create failed',
-          description: err?.message ?? 'Could not create the item.',
-          variant: 'destructive',
-        });
-      }
+      });
+      toast({ title: 'Card Updated', description: 'Changes have been saved.' });
+    } catch (err: any) {
+      setCards(prev); // revert on failure
+      toast({
+        title: 'Update failed',
+        description: err?.message ?? 'Could not update the item.',
+        variant: 'destructive',
+      });
     }
+    return;
+  }
+
+  // CREATE MODE
+  if (!project?.id) {
+    toast({
+      title: 'Missing project',
+      description: 'Select a project before creating cards.',
+      variant: 'destructive',
+    });
+    return;
+  }
+
+  // Decide which column the new card belongs to
+  const column = data.column || defaultColumn || 'backlog';
+  const position = cards.filter(c => c.column === column).length;
+
+  // Build a local optimistic card; keep board-only metadata client-side
+  const tempId = `temp-${Date.now()}`;
+  const optimistic: ElicitationCard = {
+    id: tempId,
+    title: data.title!.trim(),
+    description: data.description?.trim(),
+    column,
+    position,
+    priority: data.priority || 'medium',
+    tags: data.tags || [],
+    createdBy: 'pending', // this will be replaced by server result
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
+
+  // Optimistic insert
+  setCards(prev => [...prev, optimistic]);
+
+  try {
+    // Send only fields your backend expects; it adds createdBy from JWT
+    const created = await ElicitationService.create({
+      projectId: project.id,
+      title: optimistic.title,
+      description: optimistic.description,
+    });
+
+    // Convert server item to a card, then merge back your board-only metadata
+    const serverCard = apiItemToCard(created as any, position);
+    const merged: ElicitationCard = {
+      ...serverCard,
+      column: optimistic.column,
+      position: optimistic.position,
+      priority: optimistic.priority,
+      tags: optimistic.tags,
+    };
+
+    // Replace temp with merged server-backed card
+    setCards(prev =>
+      prev.map(c => (c.id === tempId ? merged : c))
+    );
+
+    toast({ title: 'Card Created', description: 'New card has been added.' });
+  } catch (err: any) {
+    // Remove temp if API failed
+    setCards(prev => prev.filter(c => c.id !== tempId));
+    toast({
+      title: 'Create failed',
+      description: err?.message ?? 'Could not create the item.',
+      variant: 'destructive',
+    });
+  }
+};
+
 
   const handleConvertCard = (card: ElicitationCard) => {
     toast({

@@ -60,7 +60,7 @@ export const ElicitationService = {
   /**
    * POST /elicitation
    */
-  async create(dto: CreateElicitationDto & { createdBy: string }): Promise<Elicitation> {
+  async create(dto: CreateElicitationDto): Promise<Elicitation> {
     const { data } = await api.post<Elicitation>(base, dto);
     return unwrap(data);
   },
