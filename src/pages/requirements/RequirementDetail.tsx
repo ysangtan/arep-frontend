@@ -1,14 +1,22 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatusBadge } from '@/components/requirements/StatusBadge';
 import { PriorityIndicator } from '@/components/requirements/PriorityIndicator';
-import RequirementsService from '@/services/requirements.service'; // <-- update import to correct path
+import RequirementsService, { Requirement } from '@/services/requirements.service';
 import { ArrowLeft, Edit, Trash2, Clock, User, Tag, CheckSquare } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import type { Requirement } from '@/services/requirements.service';
+
+// Accept either an ID string or a populated user object
+type MaybeUser = string | { _id?: string; email?: string; fullName?: string } | null | undefined;
+
+const displayUser = (u: MaybeUser): string => {
+  if (!u) return 'Unassigned';
+  if (typeof u === 'string') return u; // ObjectId string
+  return u.fullName || u.email || u._id || 'Unknown';
+};
 
 const RequirementDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -20,21 +28,42 @@ const RequirementDetail = () => {
 
   useEffect(() => {
     if (!id) return;
-    const fetchRequirement = async () => {
+    let alive = true;
+    (async () => {
       try {
         setLoading(true);
         const data = await RequirementsService.findOne(id);
-        setRequirement(data);
+        if (alive) setRequirement(data);
       } catch (err: any) {
         console.error('Failed to fetch requirement:', err);
-        setError('Failed to fetch requirement');
+        if (alive) setError('Failed to fetch requirement');
       } finally {
-        setLoading(false);
+        if (alive) setLoading(false);
       }
+    })();
+    return () => {
+      alive = false;
     };
-
-    fetchRequirement();
   }, [id]);
+
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return '—';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return '—';
+    return date.toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  // Normalize type label defensively
+  const typeLabel = useMemo(() => {
+    const t = requirement?.type ?? '';
+    return typeof t === 'string' ? t.replace('-', ' ') : '';
+  }, [requirement?.type]);
 
   if (loading) {
     return (
@@ -58,17 +87,6 @@ const RequirementDetail = () => {
     );
   }
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -79,11 +97,11 @@ const RequirementDetail = () => {
           </Button>
           <div>
             <div className="flex items-center space-x-3">
-              <h1 className="text-3xl font-bold text-gray-900">{requirement.reqId}</h1>
+              <h1 className="text-3xl font-bold text-gray-900">{requirement.reqId ?? '—'}</h1>
               <StatusBadge status={requirement.status} />
               <PriorityIndicator priority={requirement.priority} showLabel />
             </div>
-            <p className="text-muted-foreground mt-1">{requirement.title}</p>
+            <p className="text-muted-foreground mt-1">{requirement.title ?? 'Untitled requirement'}</p>
           </div>
         </div>
 
@@ -124,7 +142,9 @@ const RequirementDetail = () => {
               <CardTitle>Description</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-gray-700 leading-relaxed">{requirement.description}</p>
+              <p className="text-gray-700 leading-relaxed">
+                {requirement.description || '—'}
+              </p>
             </CardContent>
           </Card>
 
@@ -137,21 +157,25 @@ const RequirementDetail = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <ul className="space-y-3">
-                {requirement.acceptanceCriteria?.map((criteria, index) => (
-                  <li key={index} className="flex items-start space-x-3">
-                    <div className="mt-1 w-5 h-5 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
-                      <span className="text-xs font-medium text-primary">{index + 1}</span>
-                    </div>
-                    <span className="text-gray-700">{criteria}</span>
-                  </li>
-                ))}
-              </ul>
+              {Array.isArray(requirement.acceptanceCriteria) && requirement.acceptanceCriteria.length > 0 ? (
+                <ul className="space-y-3">
+                  {requirement.acceptanceCriteria.map((criteria, index) => (
+                    <li key={index} className="flex items-start space-x-3">
+                      <div className="mt-1 w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <span className="text-xs font-medium text-primary">{index + 1}</span>
+                      </div>
+                      <span className="text-gray-700">{criteria}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">No acceptance criteria.</p>
+              )}
             </CardContent>
           </Card>
 
           {/* Validation Warnings */}
-          {requirement.validationWarnings?.length > 0 && (
+          {Array.isArray(requirement.validationWarnings) && requirement.validationWarnings.length > 0 && (
             <Card className="border-orange-200 bg-orange-50">
               <CardHeader>
                 <CardTitle className="text-orange-700">Validation Warnings</CardTitle>
@@ -168,7 +192,7 @@ const RequirementDetail = () => {
             </Card>
           )}
 
-          {/* Comments Section */}
+          {/* Comments Section (placeholder) */}
           <Card>
             <CardHeader>
               <CardTitle>Comments</CardTitle>
@@ -194,9 +218,7 @@ const RequirementDetail = () => {
                   <User className="w-4 h-4" />
                   <span>Type</span>
                 </div>
-                <p className="text-sm font-medium capitalize pl-6">
-                  {requirement.type.replace('-', ' ')}
-                </p>
+                <p className="text-sm font-medium capitalize pl-6">{typeLabel || '—'}</p>
               </div>
 
               <Separator />
@@ -207,7 +229,7 @@ const RequirementDetail = () => {
                   <span>Assignee</span>
                 </div>
                 <p className="text-sm font-medium pl-6">
-                  {requirement.assigneeId ? 'Assigned User' : 'Unassigned'}
+                  {displayUser(requirement.assigneeId as MaybeUser)}
                 </p>
               </div>
 
@@ -218,7 +240,9 @@ const RequirementDetail = () => {
                   <User className="w-4 h-4" />
                   <span>Created By</span>
                 </div>
-                <p className="text-sm font-medium pl-6">{requirement.createdBy}</p>
+                <p className="text-sm font-medium pl-6">
+                  {displayUser(requirement.createdBy as MaybeUser)}
+                </p>
               </div>
 
               <Separator />
@@ -252,17 +276,21 @@ const RequirementDetail = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-wrap gap-2">
-                {requirement.tags.map((tag) => (
-                  <Badge key={tag} variant="secondary">
-                    {tag}
-                  </Badge>
-                ))}
-              </div>
+              {Array.isArray(requirement.tags) && requirement.tags.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {requirement.tags.map((tag) => (
+                    <Badge key={tag} variant="secondary">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No tags.</p>
+              )}
             </CardContent>
           </Card>
 
-          {/* Traceability */}
+          {/* Traceability (placeholder) */}
           <Card>
             <CardHeader>
               <CardTitle>Traceability Links</CardTitle>

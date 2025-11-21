@@ -1,6 +1,7 @@
 // src/pages/requirements/RequirementsTable.tsx
 import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useProject } from "@/contexts/ProjectContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -33,12 +34,10 @@ import RequirementsService, {
   ListEnvelope,
 } from "@/services/requirements.service";
 
-type Props = {
-  projectId?: string; // optionally scope to a project if you have it
-};
-
-const RequirementsTable = ({ projectId }: Props) => {
+const RequirementsTable = () => {
   const navigate = useNavigate();
+  const { project } = useProject(); // ⬅️ use ProjectContext only
+  const effectiveProjectId = project?.id;
 
   // UI filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -48,20 +47,17 @@ const RequirementsTable = ({ projectId }: Props) => {
 
   // data state
   const [requirements, setRequirements] = useState<Requirement[]>([]);
-  const [totalCount, setTotalCount] = useState<number | null>(null); // supports envelope
+  const [totalCount, setTotalCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Debounce search a bit
-  const debouncedSearch = useMemo(() => {
-    const obj = { val: searchQuery };
-    return obj; // stable reference to trigger effect when searchQuery changes
-  }, [searchQuery]);
+  const debouncedSearch = useMemo(() => ({ val: searchQuery }), [searchQuery]);
 
   // Build API filter from UI state
   const buildApiFilter = (): FilterRequirementDto => {
     const filter: FilterRequirementDto = {};
-    if (projectId) filter.projectId = projectId;
+    if (effectiveProjectId) filter.projectId = effectiveProjectId;
     if (statusFilter.length > 0) filter.status = statusFilter[0];
     if (typeFilter.length > 0) filter.type = typeFilter[0];
     if (priorityFilter.length > 0) filter.priority = priorityFilter[0];
@@ -71,6 +67,15 @@ const RequirementsTable = ({ projectId }: Props) => {
 
   // Fetch requirements whenever filters change
   useEffect(() => {
+    // If no project selected, show message and skip fetching
+    if (!effectiveProjectId) {
+      setRequirements([]);
+      setTotalCount(null);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
     let alive = true;
     const t = setTimeout(async () => {
       setLoading(true);
@@ -105,7 +110,13 @@ const RequirementsTable = ({ projectId }: Props) => {
       clearTimeout(t);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, debouncedSearch, statusFilter, typeFilter, priorityFilter]);
+  }, [
+    effectiveProjectId,
+    debouncedSearch,
+    statusFilter,
+    typeFilter,
+    priorityFilter,
+  ]);
 
   const handleStatusFilterChange = (value: string) => {
     setStatusFilter(value === "all" ? [] : [value as RequirementStatus]);
@@ -130,6 +141,41 @@ const RequirementsTable = ({ projectId }: Props) => {
     });
   };
 
+  // Show helper UI when no project is selected
+  if (!effectiveProjectId) {
+    return (
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Requirements</h1>
+            <p className="text-muted-foreground mt-1">
+              Select a project to view its requirements.
+            </p>
+          </div>
+          <Button
+            onClick={() => navigate("/projects")}
+            className="flex items-center space-x-2"
+          >
+            <span>Go to Projects</span>
+          </Button>
+        </div>
+
+        <Card className="p-8">
+          <div className="text-center space-y-2">
+            <Search className="w-10 h-10 mx-auto text-gray-300" />
+            <p className="text-lg font-medium">No project selected</p>
+            <p className="text-sm text-muted-foreground">
+              Please choose a project from the projects page to see its
+              requirements.
+            </p>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  // Normal table when a project is selected
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -316,13 +362,22 @@ const RequirementsTable = ({ projectId }: Props) => {
             ) : (
               (requirements ?? []).map((requirement) => {
                 const tags = requirement.tags ?? [];
-                const typeLabel = (requirement.type ?? "").toString().replace("-", " ");
+                const typeLabel = (requirement.type ?? "")
+                  .toString()
+                  .replace("-", " ");
                 const when = requirement.updatedAt ?? requirement.createdAt;
 
                 return (
                   <TableRow
                     key={requirement._id}
                     className="cursor-pointer hover:bg-gray-50"
+                    // onClick={() => {
+                    //   setRequirement({
+                    //     id: requirement._id,
+                    //     title: requirement.title,
+                    //   });
+                    //   navigate("/requirement-detail");
+                    // }}
                     onClick={() => navigate(`/requirements/${requirement._id}`)}
                   >
                     <TableCell className="font-mono text-sm font-medium">
@@ -342,7 +397,9 @@ const RequirementsTable = ({ projectId }: Props) => {
                       <span className="text-sm capitalize">{typeLabel}</span>
                     </TableCell>
                     <TableCell>
-                      <StatusBadge status={requirement.status ?? RequirementStatus.DRAFT} />
+                      <StatusBadge
+                        status={requirement.status ?? RequirementStatus.DRAFT}
+                      />
                     </TableCell>
                     <TableCell>
                       <PriorityIndicator
@@ -353,7 +410,11 @@ const RequirementsTable = ({ projectId }: Props) => {
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {tags.slice(0, 2).map((tag) => (
-                          <Badge key={tag} variant="outline" className="text-xs">
+                          <Badge
+                            key={tag}
+                            variant="outline"
+                            className="text-xs"
+                          >
                             {tag}
                           </Badge>
                         ))}
