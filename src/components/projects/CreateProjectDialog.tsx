@@ -121,53 +121,89 @@ export function CreateProjectDialog({
 
   const keyValue = form.watch("key");
 
-  const onSubmit = async (data: ProjectFormValues) => {
-    setIsSubmitting(true);
-    setError(null);
+ const onSubmit = async (data: ProjectFormValues) => {
+  setIsSubmitting(true);
+  setError(null);
 
-    try {
-      await ProjectsService.create({
-        name: data.name,
-        key: data.key, // server requires uppercase; we enforce in input
-        template: data.template,
-        description: data.description,
-      });
+  // Group logs for this submission so it's easy to collapse in DevTools
+  console.groupCollapsed(
+    `[Projects/Create] Submit start • key=${data?.key} • name="${data?.name}"`
+  );
+  const start = performance.now();
 
-      toast({
-        title: "Project created",
-        description: `${data.name} (${data.key}) has been created successfully.`,
-      });
-
-      form.reset();
-      onOpenChange(false);
-      onProjectCreated?.();
-    } catch (err: any) {
-      const status = err?.response?.status;
-      const msg =
-        err?.response?.data?.message ??
-        err?.message ??
-        "Failed to create project";
-
-      // Friendly messages for common cases
-      if (status === 409) {
-        setError(
-          "A project with this key already exists. Please choose a different key."
-        );
-      } else if (status === 401) {
-        setError("You are not authenticated. Please sign in and try again.");
-      } else if (status === 400) {
-        setError(
-          typeof msg === "string"
-            ? msg
-            : "Invalid input. Please review your entries."
-        );
-      } else {
-        setError(typeof msg === "string" ? msg : "Failed to create project");
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
+  // Log the payload you intend to send (avoid secrets)
+  const payload = {
+    name: data.name,
+    key: data.key, // enforced uppercase in input
+    template: data.template,
+    description: data.description,
   };
+  console.log('[Projects/Create] Payload:', payload);
+
+  try {
+    console.time('[Projects/Create] API call');
+    const created = await ProjectsService.create(payload);
+    console.timeEnd('[Projects/Create] API call');
+
+    // Success details
+    console.log('[Projects/Create] Success:', {
+      id: created?._id,
+      key: created?.key,
+      name: created?.name,
+      status: created?.status,
+      ownerId: created?.ownerId,
+      createdAt: created?.createdAt,
+    });
+
+    toast({
+      title: 'Project created',
+      description: `${data.name} (${data.key}) has been created successfully.`,
+    });
+
+    form.reset();
+    console.log('[Projects/Create] Form reset');
+
+    onOpenChange(false);
+    console.log('[Projects/Create] Dialog closed');
+
+    onProjectCreated?.();
+    console.log('[Projects/Create] onProjectCreated callback fired');
+  } catch (err: any) {
+    // Extract useful error context
+    const status = err?.response?.status;
+    const msg =
+      err?.response?.data?.message ?? err?.message ?? 'Failed to create project';
+
+    // Rich error logging for debugging
+    console.error('[Projects/Create] Error:', {
+      status,
+      message: msg,
+      url: err?.config?.url,
+      method: err?.config?.method,
+      requestData: err?.config?.data,
+      responseData: err?.response?.data,
+      headers: err?.response?.headers,
+      stack: err?.stack,
+    });
+
+    // Friendly messages for common cases (UI)
+    if (status === 409) {
+      setError('A project with this key already exists. Please choose a different key.');
+    } else if (status === 401) {
+      setError('You are not authenticated. Please sign in and try again.');
+    } else if (status === 400) {
+      setError(typeof msg === 'string' ? msg : 'Invalid input. Please review your entries.');
+    } else {
+      setError(typeof msg === 'string' ? msg : 'Failed to create project');
+    }
+  } finally {
+    setIsSubmitting(false);
+    const duration = Math.round(performance.now() - start);
+    console.log(`[Projects/Create] Submit finished in ${duration}ms`);
+    console.groupEnd();
+  }
+};
+
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

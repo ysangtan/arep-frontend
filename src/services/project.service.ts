@@ -68,6 +68,17 @@ type ApiWrap<T> = { success?: boolean; data: T; message?: string };
 function unwrap<T>(payload: T | ApiWrap<T>): T {
   return (payload as any)?.data ?? (payload as T);
 }
+
+function surfaceError(err: unknown): never {
+  // Axios-style errors or generic ones; rethrow a readable message
+  const anyErr = err as any;
+  const msg =
+    anyErr?.response?.data?.message ??
+    anyErr?.message ??
+    'Request failed';
+  throw new Error(msg);
+}
+
 const base = '/projects';
 
 // --------- Service ----------
@@ -77,16 +88,24 @@ export const ProjectsService = {
    * Returns projects for the current user (derived from JWT via @CurrentUser).
    */
   async findAll(): Promise<Project[] | ListEnvelope<Project>> {
-    const { data } = await api.get<Project[] | ListEnvelope<Project>>(base);
-    return unwrap(data);
+    try {
+      const { data } = await api.get<Project[] | ListEnvelope<Project>>(base);
+      return unwrap(data);
+    } catch (err) {
+      surfaceError(err);
+    }
   },
 
   /**
    * GET /projects/:id
    */
   async findOne(id: string): Promise<Project> {
-    const { data } = await api.get<Project>(`${base}/${id}`);
-    return data;
+    try {
+      const { data } = await api.get<Project | ApiWrap<Project>>(`${base}/${encodeURIComponent(id)}`);
+      return unwrap(data);
+    } catch (err) {
+      surfaceError(err);
+    }
   },
 
   /**
@@ -94,41 +113,72 @@ export const ProjectsService = {
    * Note: ownerId is set on the server via @CurrentUser.
    */
   async create(dto: CreateProjectDto): Promise<Project> {
-    const { data } = await api.post<Project>(base, dto);
-    return data;
+    try {
+      const { data } = await api.post<Project | ApiWrap<Project>>(base, dto);
+      return unwrap(data);
+    } catch (err) {
+      surfaceError(err);
+    }
   },
 
   /**
    * PATCH /projects/:id
    */
   async update(id: string, dto: UpdateProjectDto): Promise<Project> {
-    const { data } = await api.patch<Project>(`${base}/${id}`, dto);
-    return data;
+    try {
+      const { data } = await api.patch<Project | ApiWrap<Project>>(
+        `${base}/${encodeURIComponent(id)}`,
+        dto
+      );
+      return unwrap(data);
+    } catch (err) {
+      surfaceError(err);
+    }
   },
 
   /**
    * DELETE /projects/:id
+   * Some backends return the deleted entity; others return { deleted: true }.
    */
   async remove(id: string): Promise<{ deleted: boolean } | Project> {
-    const { data } = await api.delete<{ deleted: boolean } | Project>(`${base}/${id}`);
-    return data;
+    try {
+      const { data } = await api.delete<{ deleted: boolean } | Project | ApiWrap<{ deleted: boolean } | Project>>(
+        `${base}/${encodeURIComponent(id)}`
+      );
+      return unwrap(data);
+    } catch (err) {
+      surfaceError(err);
+    }
   },
 
   /**
    * POST /projects/:id/members
    */
   async addMember(id: string, userId: string): Promise<Project> {
-    const payload: AddMemberDto = { userId };
-    const { data } = await api.post<Project>(`${base}/${id}/members`, payload);
-    return data;
+    try {
+      const payload: AddMemberDto = { userId };
+      const { data } = await api.post<Project | ApiWrap<Project>>(
+        `${base}/${encodeURIComponent(id)}/members`,
+        payload
+      );
+      return unwrap(data);
+    } catch (err) {
+      surfaceError(err);
+    }
   },
 
   /**
    * DELETE /projects/:id/members/:userId
    */
   async removeMember(id: string, userId: string): Promise<Project> {
-    const { data } = await api.delete<Project>(`${base}/${id}/members/${userId}`);
-    return data;
+    try {
+      const { data } = await api.delete<Project | ApiWrap<Project>>(
+        `${base}/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`
+      );
+      return unwrap(data);
+    } catch (err) {
+      surfaceError(err);
+    }
   },
 };
 
