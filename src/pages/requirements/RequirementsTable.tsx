@@ -82,6 +82,7 @@ const RequirementsTable = () => {
       setError(null);
       try {
         const filter = buildApiFilter();
+        console.log("Fetching requirements with filter:", filter);
         const data = await RequirementsService.findAll(filter);
         if (!alive) return;
 
