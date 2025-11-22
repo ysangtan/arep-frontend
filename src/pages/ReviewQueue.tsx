@@ -1,8 +1,11 @@
-import { useState } from 'react';
+// src/pages/reviews/ReviewQueue.tsx
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+// If you have a project context, you can use it here:
+// import { useProject } from '@/contexts/ProjectContext';
+import { Review, ReviewChecklist, ReviewsService } from '@/services/reviews.service';
 import { ReviewDrawer } from '@/components/reviews/ReviewDrawer';
-import { Review, ReviewChecklist } from '@/types/review.types';
-import { mockReviews, getReviewsByUser } from '@/services/reviewMockData';
+
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,122 +25,176 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { 
-  Clock, 
-  CheckCircle, 
-  AlertCircle, 
-  Eye, 
+import {
+  Clock,
+  CheckCircle,
+  AlertCircle,
+  Eye,
   Filter,
-  Users
+  Users,
 } from 'lucide-react';
+
+type StatusFilter = 'all' | 'pending' | 'in-progress' | 'completed';
 
 const ReviewQueue = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  // const { project } = useProject(); // If you need projectId, grab it here.
+
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedReview, setSelectedReview] = useState<Review | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [error, setError] = useState<string | null>(null);
 
-  // Get reviews for current user
-  const userReviews = user ? getReviewsByUser(user.id) : [];
+  // ---- Load reviews from API ----
+  useEffect(() => {
+    let mounted = true;
 
-  // Filter reviews based on status
-  const filteredReviews = userReviews.filter(review => {
-    if (statusFilter === 'all') return true;
-    return review.status === statusFilter;
-  });
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // If you decide to scope by requirement:
+        // const requirementId = ...;
+        // const data = await ReviewsService.findAll(requirementId);
+
+        const data = await ReviewsService.findAll(); // controller supports optional requirementId
+        const list = Array.isArray(data) ? data : data.items;
+        if (!mounted) return;
+
+        // If you need to filter by user on FE until backend supports it:
+        // Only show reviews where current user is a reviewer
+        const scoped = user
+          ? list.filter(r => r.reviewers?.some(rv => rv.userId === user.id))
+          : list;
+
+        setReviews(scoped);
+      } catch (e: any) {
+        setError(e?.message ?? 'Failed to load reviews');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [user?.id]);
+
+  const filteredReviews = useMemo(() => {
+    if (statusFilter === 'all') return reviews;
+    return reviews.filter(r => r.status === statusFilter);
+  }, [reviews, statusFilter]);
 
   const handleReviewClick = (review: Review) => {
     setSelectedReview(review);
     setDrawerOpen(true);
   };
 
-  const handleApprove = (reviewId: string, comment: string, checklist: ReviewChecklist) => {
-    toast({
-      title: 'Review Approved',
-      description: 'Requirement has been approved and will proceed to implementation.',
-      variant: 'default',
-    });
-    setDrawerOpen(false);
-    
-    // In real app, update review status via API
-    console.log('Approved:', { reviewId, comment, checklist });
+  // NOTE: Your API currently supports adding comments (POST /reviews/:id/comments).
+  // Status updates (approve/reject/defer) would need additional endpoints.
+  const handleApprove = async (reviewId: string, comment: string, _checklist: ReviewChecklist) => {
+    try {
+      await ReviewsService.addComment(reviewId, { content: comment });
+      toast({
+        title: 'Review Approved',
+        description: 'Comment posted. (Add a status update endpoint to persist approval.)',
+        variant: 'default',
+      });
+      setDrawerOpen(false);
+      // TODO: refresh review list or optimistic update when backend supports status updates
+    } catch (err: any) {
+      toast({
+        title: 'Approval failed',
+        description: err?.message ?? 'Could not submit approval.',
+        variant: 'destructive',
+      });
+    }
   };
 
-  const handleReject = (reviewId: string, comment: string) => {
-    toast({
-      title: 'Changes Requested',
-      description: 'The requirement has been sent back for revision.',
-      variant: 'default',
-    });
-    setDrawerOpen(false);
-    
-    // In real app, update review status via API
-    console.log('Rejected:', { reviewId, comment });
+  const handleReject = async (reviewId: string, comment: string) => {
+    try {
+      await ReviewsService.addComment(reviewId, { content: comment });
+      toast({
+        title: 'Changes Requested',
+        description: 'Comment posted. (Add a status update endpoint to persist rejection.)',
+        variant: 'default',
+      });
+      setDrawerOpen(false);
+    } catch (err: any) {
+      toast({
+        title: 'Request changes failed',
+        description: err?.message ?? 'Could not submit request.',
+        variant: 'destructive',
+      });
+    }
   };
 
-  const handleDefer = (reviewId: string, comment: string) => {
-    toast({
-      title: 'Decision Deferred',
-      description: 'Review decision postponed. More information needed.',
-      variant: 'default',
-    });
-    setDrawerOpen(false);
-    
-    // In real app, update review status via API
-    console.log('Deferred:', { reviewId, comment });
+  const handleDefer = async (reviewId: string, comment: string) => {
+    try {
+      await ReviewsService.addComment(reviewId, { content: comment });
+      toast({
+        title: 'Decision Deferred',
+        description: 'Comment posted. (Add a status update endpoint to persist deferral.)',
+        variant: 'default',
+      });
+      setDrawerOpen(false);
+    } catch (err: any) {
+      toast({
+        title: 'Deferral failed',
+        description: err?.message ?? 'Could not submit deferral.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const getStatusBadge = (status: string) => {
-    const config = {
-      'pending': { label: 'Pending', className: 'bg-amber-100 text-amber-700' },
-      'in-progress': { label: 'In Progress', className: 'bg-blue-100 text-blue-700' },
-      'completed': { label: 'Completed', className: 'bg-green-100 text-green-700' },
-    }[status] || { label: status, className: 'bg-gray-100 text-gray-700' };
+    const config =
+      {
+        pending: { label: 'Pending', className: 'bg-amber-100 text-amber-700' },
+        'in-progress': { label: 'In Progress', className: 'bg-blue-100 text-blue-700' },
+        completed: { label: 'Completed', className: 'bg-green-100 text-green-700' },
+      }[status] || { label: status, className: 'bg-gray-100 text-gray-700' };
 
-    return (
-      <Badge className={config.className}>
-        {config.label}
-      </Badge>
-    );
+    return <Badge className={config.className}>{config.label}</Badge>;
   };
 
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return '-';
-    const date = new Date(dateString);
+  const formatDate = (dateInput?: string | Date) => {
+    if (!dateInput) return '-';
+    const date = new Date(dateInput);
     const now = new Date();
     const diffTime = date.getTime() - now.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
     if (diffDays < 0) {
-      return (
-        <span className="text-red-600 font-medium">
-          Overdue ({Math.abs(diffDays)}d)
-        </span>
-      );
+      return <span className="text-red-600 font-medium">Overdue ({Math.abs(diffDays)}d)</span>;
     } else if (diffDays === 0) {
       return <span className="text-amber-600 font-medium">Due Today</span>;
     } else if (diffDays === 1) {
       return <span className="text-amber-600">Due Tomorrow</span>;
     } else {
-      return date.toLocaleDateString('en-US', { 
-        month: 'short', 
-        day: 'numeric' 
+      return date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
       });
     }
   };
 
-  // Calculate stats
-  const stats = {
-    total: userReviews.length,
-    pending: userReviews.filter(r => r.status === 'pending').length,
-    inProgress: userReviews.filter(r => r.status === 'in-progress').length,
-    completed: userReviews.filter(r => r.status === 'completed').length,
-    overdue: userReviews.filter(r => {
+  const stats = useMemo(() => {
+    const total = reviews.length;
+    const pending = reviews.filter(r => r.status === 'pending').length;
+    const inProgress = reviews.filter(r => r.status === 'in-progress').length;
+    const completed = reviews.filter(r => r.status === 'completed').length;
+    const overdue = reviews.filter(r => {
       if (!r.dueDate) return false;
       return new Date(r.dueDate) < new Date() && r.status !== 'completed';
-    }).length,
-  };
+    }).length;
+
+    return { total, pending, inProgress, completed, overdue };
+  }, [reviews]);
 
   return (
     <div className="space-y-6">
@@ -145,9 +202,7 @@ const ReviewQueue = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Review Queue</h1>
-          <p className="text-muted-foreground mt-1">
-            Review and approve requirements assigned to you
-          </p>
+          <p className="text-muted-foreground mt-1">Review and approve requirements assigned to you</p>
         </div>
       </div>
 
@@ -208,9 +263,9 @@ const ReviewQueue = () => {
       <Card className="p-4">
         <div className="flex items-center space-x-4">
           <Filter className="w-5 h-5 text-gray-500" />
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <Select value={statusFilter} onValueChange={(v: StatusFilter) => setStatusFilter(v)}>
             <SelectTrigger className="w-48">
-              <SelectValue />
+              <SelectValue placeholder="All Reviews" />
             </SelectTrigger>
             <SelectContent className="bg-white z-50">
               <SelectItem value="all">All Reviews</SelectItem>
@@ -220,86 +275,86 @@ const ReviewQueue = () => {
             </SelectContent>
           </Select>
           <p className="text-sm text-muted-foreground">
-            Showing {filteredReviews.length} of {userReviews.length} reviews
+            Showing {filteredReviews.length} of {reviews.length} reviews
           </p>
         </div>
       </Card>
 
       {/* Reviews Table */}
       <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[100px]">Req ID</TableHead>
-              <TableHead>Title</TableHead>
-              <TableHead className="w-[120px]">Status</TableHead>
-              <TableHead className="w-[140px]">Due Date</TableHead>
-              <TableHead className="w-[120px]">Type</TableHead>
-              <TableHead className="w-[100px] text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredReviews.length === 0 ? (
+        {loading ? (
+          <div className="p-8 text-center text-muted-foreground">Loading reviews…</div>
+        ) : error ? (
+          <div className="p-8 text-center text-red-600">{error}</div>
+        ) : (
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-12">
-                  <div className="flex flex-col items-center space-y-2">
-                    <CheckCircle className="w-12 h-12 text-gray-300" />
-                    <p className="text-gray-500">No reviews in this category</p>
-                    <p className="text-sm text-gray-400">
-                      {statusFilter === 'all' 
-                        ? 'You have no assigned reviews' 
-                        : 'Try changing the filter'}
-                    </p>
-                  </div>
-                </TableCell>
+                <TableHead className="w-[140px]">Requirement</TableHead>
+                <TableHead className="w-[120px]">Status</TableHead>
+                <TableHead className="w-[140px]">Due Date</TableHead>
+                <TableHead className="w-[120px]">Type</TableHead>
+                <TableHead className="w-[140px]">Reviewers</TableHead>
+                <TableHead className="w-[100px] text-right">Actions</TableHead>
               </TableRow>
-            ) : (
-              filteredReviews.map((review) => (
-                <TableRow
-                  key={review.id}
-                  className="cursor-pointer hover:bg-gray-50"
-                  onClick={() => handleReviewClick(review)}
-                >
-                  <TableCell className="font-mono font-medium text-primary">
-                    {review.requirementReqId}
-                  </TableCell>
-                  <TableCell>
-                    <div className="max-w-md">
-                      <p className="font-medium truncate">{review.requirementTitle}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {review.reviewers.length} reviewer{review.reviewers.length > 1 ? 's' : ''}
+            </TableHeader>
+            <TableBody>
+              {filteredReviews.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-12">
+                    <div className="flex flex-col items-center space-y-2">
+                      <CheckCircle className="w-12 h-12 text-gray-300" />
+                      <p className="text-gray-500">No reviews in this category</p>
+                      <p className="text-sm text-gray-400">
+                        {statusFilter === 'all' ? 'You have no assigned reviews' : 'Try changing the filter'}
                       </p>
                     </div>
                   </TableCell>
-                  <TableCell>{getStatusBadge(review.status)}</TableCell>
-                  <TableCell>{formatDate(review.dueDate)}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="capitalize">
-                      {review.type.replace('-', ' ')}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleReviewClick(review);
-                      }}
-                    >
-                      <Eye className="w-4 h-4" />
-                    </Button>
-                  </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ) : (
+                filteredReviews.map(review => (
+                  <TableRow
+                    key={review._id}
+                    className="cursor-pointer hover:bg-gray-50"
+                    onClick={() => handleReviewClick(review)}
+                  >
+                    <TableCell className="font-mono font-medium text-primary">
+                      {/* Show a compact requirement reference (since backend only returns requirementId) */}
+                      {String(review.requirementId).slice(0, 6)}…
+                    </TableCell>
+                    <TableCell>{getStatusBadge(review.status)}</TableCell>
+                    <TableCell>{formatDate(review.dueDate)}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="capitalize">
+                        {review.type.replace('-', ' ')}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {review.reviewers?.length ?? 0} reviewer{(review.reviewers?.length ?? 0) > 1 ? 's' : ''}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={e => {
+                          e.stopPropagation();
+                          handleReviewClick(review);
+                        }}
+                      >
+                        <Eye className="w-4 h-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        )}
       </Card>
 
       {/* Review Drawer */}
       <ReviewDrawer
-        review={selectedReview}
+        review={selectedReview as any}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         onApprove={handleApprove}

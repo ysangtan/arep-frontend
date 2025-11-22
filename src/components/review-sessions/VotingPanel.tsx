@@ -1,22 +1,37 @@
-import { useState } from 'react';
+// src/components/review-sessions/VotingPanel.tsx
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Vote, VoteType } from '@/types/reviewSession.types';
 import { ThumbsUp, ThumbsDown, MessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { ReviewSessionsService } from '@/services/review-sessions.service';
+// Use ONLY your UI types here:
+import { VoteType, Vote as UiVote } from '@/types/reviewSession.types';
+
 interface VotingPanelProps {
+  sessionId?: string;                 // optional: if provided, we'll refresh from API
   requirementId: string;
   requirementTitle: string;
-  votes: Vote[];
+  votes: UiVote[];                    // UI votes passed by parent
   totalParticipants: number;
   onVote: (voteType: VoteType) => void;
   currentUserVote?: VoteType;
 }
 
+// Minimal shape from API to map into UI votes (keeps us decoupled from svc enums)
+type ApiVote = {
+  userId: string;
+  voteType: string;   // will be asserted to VoteType
+  createdAt: string;
+  comment?: string;
+};
+
 export function VotingPanel({
+  sessionId,
+  requirementId,
   requirementTitle,
   votes,
   totalParticipants,
@@ -24,10 +39,47 @@ export function VotingPanel({
   currentUserVote,
 }: VotingPanelProps) {
   const [isVoting, setIsVoting] = useState(false);
+  const [localVotes, setLocalVotes] = useState<UiVote[]>(votes);
+  const [loadingVotes, setLoadingVotes] = useState(false);
 
-  const approveCount = votes.filter((v) => v.voteType === 'approve').length;
-  const rejectCount = votes.filter((v) => v.voteType === 'reject').length;
-  const discussCount = votes.filter((v) => v.voteType === 'needs-discussion').length;
+  // keep local with parent updates
+  useEffect(() => {
+    setLocalVotes(votes);
+  }, [votes]);
+
+  const toUiVote = (v: ApiVote): UiVote => ({
+    userId: v.userId,
+    userName: `User ${v.userId.slice(0, 4)}`,
+    voteType: v.voteType as VoteType, // map API string -> UI union
+    timestamp: v.createdAt,
+    comment: v.comment,
+  });
+
+  const refreshFromApi = async () => {
+    if (!sessionId || !requirementId) return;
+    try {
+      setLoadingVotes(true);
+      const data = await ReviewSessionsService.getVotes(sessionId, requirementId);
+      const list = Array.isArray(data) ? data : data.items;
+      setLocalVotes((list as ApiVote[]).map(toUiVote));
+    } catch (err) {
+      console.error('[VotingPanel] Failed to refresh votes:', err);
+      // no toast to avoid noise
+    } finally {
+      setLoadingVotes(false);
+    }
+  };
+
+  // fetch current votes when session/requirement changes (if sessionId is provided)
+  useEffect(() => {
+    refreshFromApi();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, requirementId]);
+
+  // Use string-literal union comparisons from your UI types
+  const approveCount = localVotes.filter(v => v.voteType === 'approve').length;
+  const rejectCount = localVotes.filter(v => v.voteType === 'reject').length;
+  const discussCount = localVotes.filter(v => v.voteType === 'needs-discussion').length;
 
   const approvePercent = totalParticipants > 0 ? (approveCount / totalParticipants) * 100 : 0;
   const rejectPercent = totalParticipants > 0 ? (rejectCount / totalParticipants) * 100 : 0;
@@ -36,11 +88,11 @@ export function VotingPanel({
   const handleVote = async (voteType: VoteType) => {
     setIsVoting(true);
     try {
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      onVote(voteType);
+      await Promise.resolve(onVote(voteType)); // parent handles persistence/optimistic update
       toast.success(`Voted: ${voteType.replace('-', ' ')}`);
+      if (sessionId) await refreshFromApi();   // re-sync from server if possible
     } catch (error) {
+      console.error('[VotingPanel] submit vote error:', error);
       toast.error('Failed to submit vote');
     } finally {
       setIsVoting(false);
@@ -51,7 +103,9 @@ export function VotingPanel({
     <Card>
       <CardHeader>
         <CardTitle className="text-lg">{requirementTitle}</CardTitle>
-        <CardDescription>Cast your vote on this requirement</CardDescription>
+        <CardDescription>
+          Cast your vote on this requirement {loadingVotes && '• refreshing…'}
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Voting Buttons */}
@@ -90,7 +144,7 @@ export function VotingPanel({
           <div className="flex items-center justify-between text-sm">
             <span className="font-medium">Vote Tally</span>
             <span className="text-muted-foreground">
-              {votes.length} / {totalParticipants} voted
+              {localVotes.length} / {totalParticipants} voted
             </span>
           </div>
 
@@ -137,11 +191,11 @@ export function VotingPanel({
         </div>
 
         {/* Individual Votes */}
-        {votes.length > 0 && (
+        {localVotes.length > 0 && (
           <div className="space-y-2">
             <div className="text-sm font-medium">Individual Votes</div>
             <div className="space-y-2">
-              {votes.map((vote, idx) => (
+              {localVotes.map((vote, idx) => (
                 <div key={idx} className="flex items-center justify-between text-sm p-2 bg-muted rounded">
                   <span>{vote.userName}</span>
                   <Badge
