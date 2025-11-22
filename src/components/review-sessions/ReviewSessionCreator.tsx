@@ -68,32 +68,33 @@ export function ReviewSessionCreator({ open, onOpenChange, onSuccess }: ReviewSe
   });
 
   // Load requirements for the active project when the dialog opens
-  useEffect(() => {
-    const fetchRequirements = async () => {
-      if (!open) return;
-      if (!project?.id) {
-        toast.error('No project selected. Please pick a project first.');
-        return;
-      }
-      try {
-        setLoadingReqs(true);
-        const data = await RequirementsService.findAll({
-          projectId: project.id,
-          // limit: 100,
-          // sortBy: 'createdAt',
-          // sortOrder: 'desc',
-        });
-        const items = Array.isArray(data) ? data : (data as ReqListEnvelope<Requirement>).items;
-        setRequirements(items);
-      } catch (err) {
-        console.error('[ReviewSessionCreator] Failed to load requirements:', err);
-        toast.error('Failed to load requirements');
-      } finally {
-        setLoadingReqs(false);
-      }
-    };
-    fetchRequirements();
-  }, [open, project?.id]);
+// Load only requirements whose elicitation column = "review"
+useEffect(() => {
+  const fetchRequirements = async () => {
+    if (!open) return;
+    if (!project?.id) {
+      toast.error('No project selected. Please pick a project first.');
+      return;
+    }
+
+    try {
+      setLoadingReqs(true);
+
+      // ✅ Directly ask backend for only "review" ones
+      const data = await RequirementsService.findAllByProjectAndElicitation(project.id, 'review');
+      const items = Array.isArray(data) ? data : (data as ReqListEnvelope<Requirement>).items;
+      setRequirements(items ?? []);
+    } catch (err) {
+      console.error('[ReviewSessionCreator] Failed to load review requirements:', err);
+      toast.error('Failed to load review requirements');
+    } finally {
+      setLoadingReqs(false);
+    }
+  };
+
+  fetchRequirements();
+}, [open, project?.id]);
+
 
   // Load people (users) for selection when dialog opens
   useEffect(() => {

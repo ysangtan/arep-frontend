@@ -186,7 +186,7 @@ const RequirementEditor = ({ projectId }: Props) => {
         });
 
         // Navigate to detail page of the created requirement
-        navigate(`/requirements/${created._id}`);
+        navigate(`/requirements`);
       }
     } catch (e: any) {
       const status = e?.response?.status;

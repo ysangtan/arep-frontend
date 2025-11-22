@@ -13,12 +13,11 @@ import { KanbanCard } from '@/components/elicitation/KanbanCard';
 import { CardFormDialog } from '@/components/elicitation/CardFormDialog';
 import { PresenceBar, ActiveUser } from '@/components/elicitation/PresenceBar';
 import { ElicitationCard, ElicitationColumn } from '@/types/elicitation.types';
-// import { mockElicitationCards } from '@/services/elicitationMockData'; // ⛔️ remove mock usage
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { Info } from 'lucide-react';
 
-// ✅ NEW: API service + project hook
+// ✅ API service + project hook
 import ElicitationService from '@/services/elicitation.service';
 import { useProject } from '@/contexts/ProjectContext';
 
@@ -29,22 +28,25 @@ const columns: { id: ElicitationColumn; title: string }[] = [
   { id: 'done', title: 'Done' },
 ];
 
-// Mock active users and editing state (kept as-is for presence simulation)
+// Mock active users for presence bar
 const mockUsers: ActiveUser[] = [
   { id: '1', name: 'Sarah Chen', initials: 'SC', color: '#6366f1' },
   { id: '2', name: 'Mike Johnson', initials: 'MJ', color: '#ec4899' },
   { id: '3', name: 'Alex Kim', initials: 'AK', color: '#10b981' },
 ];
 
-// ---- Helper mappers ---------------------------------------------------------
+// ---------- Helpers ----------
 
-// The API object (Elicitation) doesn’t know about board-only fields.
-// We add safe defaults client-side to keep your UI working 1:1.
+// Map API object → board card; prefer server values if present
 function apiItemToCard(
   apiItem: {
     _id: string;
     title: string;
     description?: string;
+    column?: ElicitationColumn;
+    position?: number;
+    priority?: 'low' | 'medium' | 'high';
+    tags?: string[];
     createdBy: string;
     createdAt: string;
     updatedAt: string;
@@ -55,11 +57,10 @@ function apiItemToCard(
     id: apiItem._id,
     title: apiItem.title,
     description: apiItem.description,
-    // Choose any default column; feel free to persist this server-side later
-    column: 'backlog',
-    position: index,
-    priority: 'medium',
-    tags: [],
+    column: (apiItem.column as ElicitationColumn) ?? 'backlog',
+    position: typeof apiItem.position === 'number' ? apiItem.position : index,
+    priority: (apiItem.priority as any) ?? 'medium',
+    tags: apiItem.tags ?? [],
     createdBy: apiItem.createdBy,
     createdAt: apiItem.createdAt,
     updatedAt: apiItem.updatedAt,
@@ -71,6 +72,10 @@ function listToCards(
     _id: string;
     title: string;
     description?: string;
+    column?: ElicitationColumn;
+    position?: number;
+    priority?: 'low' | 'medium' | 'high';
+    tags?: string[];
     createdBy: string;
     createdAt: string;
     updatedAt: string;
@@ -79,10 +84,19 @@ function listToCards(
   return list.map((it, i) => apiItemToCard(it, i));
 }
 
-// ---------------------------------------------------------------------------
+function reindexPositions(cards: ElicitationCard[], column: ElicitationColumn) {
+  const inCol = cards
+    .filter(c => c.column === column)
+    .sort((a, b) => a.position - b.position)
+    .map((c, idx) => ({ ...c, position: idx }));
+  const notInCol = cards.filter(c => c.column !== column);
+  return [...notInCol, ...inCol];
+}
+
+// -----------------------------
 
 const ElicitationBoard = () => {
-  const { project } = useProject(); // ✅ access project?.id
+  const { project } = useProject(); // project?.id
   const [cards, setCards] = useState<ElicitationCard[]>([]);
   const [activeCard, setActiveCard] = useState<ElicitationCard | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -106,12 +120,9 @@ const ElicitationBoard = () => {
     let cancelled = false;
 
     async function load() {
-      if (!project?.id) return; // no project yet
+      if (!project?.id) return;
       try {
-        // GET /elicitation?projectId=...
         const result = await ElicitationService.findAll(project.id);
-
-        // result can be Elicitation[] OR ListEnvelope<Elicitation>
         const items = Array.isArray(result) ? result : result.items;
         if (!items) return;
 
@@ -132,7 +143,7 @@ const ElicitationBoard = () => {
     };
   }, [project?.id, toast]);
 
-  // -------- Simulated presence (unchanged) --------
+  // -------- Simulated presence --------
   useEffect(() => {
     const timer1 = setTimeout(() => setActiveUsers([mockUsers[0]]), 1000);
     const timer2 = setTimeout(() => setActiveUsers([mockUsers[0], mockUsers[1]]), 3000);
@@ -154,7 +165,7 @@ const ElicitationBoard = () => {
     };
   }, []);
 
-  // -------- Simulate remote editing (unchanged) --------
+  // -------- Simulate remote editing --------
   useEffect(() => {
     const intervalId = setInterval(() => {
       if (cards.length === 0) return;
@@ -181,7 +192,7 @@ const ElicitationBoard = () => {
     setActiveCard(card || null);
   };
 
-  const handleDragEnd = (event: DragEndEvent) => {
+  const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveCard(null);
     if (!over) return;
@@ -189,25 +200,54 @@ const ElicitationBoard = () => {
     const card = cards.find(c => c.id === active.id);
     if (!card) return;
 
-    const overColumn = columns.find(col => col.id === over.id);
+    const overColumn = columns.find(col => col.id === (over.id as ElicitationColumn));
     const targetColumn = overColumn ? overColumn.id : card.column;
-    if (card.column === targetColumn) return;
 
-    // Optimistic local move (board-only metadata stays client-side)
-    setCards(prev =>
-      prev.map(c => (c.id === card.id ? { ...c, column: targetColumn, updatedAt: new Date().toISOString() } : c))
+    // Simple behavior: move to the end of the target column
+    const nextPos =
+      targetColumn === card.column
+        ? cards.filter(c => c.column === card.column && c.id !== card.id).length
+        : cards.filter(c => c.column === targetColumn).length;
+
+    // ----- Optimistic UI -----
+    const prev = cards;
+
+    let next = prev.map(c =>
+      c.id === card.id
+        ? {
+            ...c,
+            column: targetColumn,
+            position: nextPos,
+            updatedAt: new Date().toISOString(),
+          }
+        : c
     );
+    next = reindexPositions(next, card.column);
+    next = reindexPositions(next, targetColumn);
+    setCards(next);
 
     toast({
-      title: 'Card Moved',
+      title: 'Card moved',
       description: `Moved to ${targetColumn.replace('-', ' ')}`,
     });
 
-    // If you later persist column/position server-side, call:
-    // await ElicitationService.update(card.id, { description: card.description })
+    // ----- Persist to API -----
+    try {
+      await ElicitationService.update(card.id, {
+        column: targetColumn,
+        position: nextPos,
+      });
+    } catch (err: any) {
+      setCards(prev); // revert
+      toast({
+        title: 'Move failed',
+        description: err?.message ?? 'Could not update card position.',
+        variant: 'destructive',
+      });
+    }
   };
 
-  // ---------- Card actions (Create / Update / Delete) ----------
+  // ---------- Card actions ----------
   const handleAddCard = (column: ElicitationColumn) => {
     setEditingCard(undefined);
     setDefaultColumn(column);
@@ -221,7 +261,6 @@ const ElicitationBoard = () => {
   };
 
   const handleDeleteCard = async (cardId: string) => {
-    // Optimistic UI
     const prev = cards;
     setCards(prev.filter(c => c.id !== cardId));
 
@@ -229,7 +268,6 @@ const ElicitationBoard = () => {
       await ElicitationService.remove(cardId);
       toast({ title: 'Card Deleted', description: 'The card has been removed.' });
     } catch (err: any) {
-      // Revert on error
       setCards(prev);
       toast({
         title: 'Delete failed',
@@ -239,109 +277,95 @@ const ElicitationBoard = () => {
     }
   };
 
- // --- in ElicitationBoard.tsx ---
-const handleSaveCard = async (data: Partial<ElicitationCard>) => {
-  // EDIT MODE
-  if (data.id) {
-    // keep client-only board metadata and optimistic update the rest
-    const prev = cards;
-    const next = prev.map(card =>
-      card.id === data.id
-        ? {
-            ...card,
-            title: data.title ?? card.title,
-            description: data.description ?? card.description,
-            // keep board-only fields as-is (column/priority/tags/position)
-            updatedAt: new Date().toISOString(),
-          }
-        : card
-    );
-    setCards(next);
+  const handleSaveCard = async (data: Partial<ElicitationCard>) => {
+    // EDIT MODE
+    if (data.id) {
+      const prev = cards;
+      const next = prev.map(card =>
+        card.id === data.id
+          ? {
+              ...card,
+              title: data.title ?? card.title,
+              description: data.description ?? card.description,
+              updatedAt: new Date().toISOString(),
+            }
+          : card
+      );
+      setCards(next);
+
+      try {
+        await ElicitationService.update(data.id, {
+          title: data.title,
+          description: data.description,
+        });
+        toast({ title: 'Card Updated', description: 'Changes have been saved.' });
+      } catch (err: any) {
+        setCards(prev);
+        toast({
+          title: 'Update failed',
+          description: err?.message ?? 'Could not update the item.',
+          variant: 'destructive',
+        });
+      }
+      return;
+    }
+
+    // CREATE MODE
+    if (!project?.id) {
+      toast({
+        title: 'Missing project',
+        description: 'Select a project before creating cards.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const column = data.column || defaultColumn || 'backlog';
+    const position = cards.filter(c => c.column === column).length;
+
+    const tempId = `temp-${Date.now()}`;
+    const optimistic: ElicitationCard = {
+      id: tempId,
+      title: data.title!.trim(),
+      description: data.description?.trim(),
+      column,
+      position,
+      priority: data.priority || 'medium',
+      tags: data.tags || [],
+      createdBy: 'pending',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    setCards(prev => [...prev, optimistic]);
 
     try {
-      await ElicitationService.update(data.id, {
-        title: data.title,
-        description: data.description,
+      const created = await ElicitationService.create({
+        projectId: project.id,
+        title: optimistic.title,
+        description: optimistic.description,
       });
-      toast({ title: 'Card Updated', description: 'Changes have been saved.' });
+
+      const serverCard = apiItemToCard(created as any, position);
+      const merged: ElicitationCard = {
+        ...serverCard,
+        column: optimistic.column,
+        position: optimistic.position,
+        priority: optimistic.priority,
+        tags: optimistic.tags,
+      };
+
+      setCards(prev => prev.map(c => (c.id === tempId ? merged : c)));
+      toast({ title: 'Card Created', description: 'New card has been added.' });
     } catch (err: any) {
-      setCards(prev); // revert on failure
+      setCards(prev => prev.filter(c => c.id !== tempId));
       toast({
-        title: 'Update failed',
-        description: err?.message ?? 'Could not update the item.',
+        title: 'Create failed',
+        description: err?.message ?? 'Could not create the item.',
         variant: 'destructive',
       });
     }
-    return;
-  }
-
-  // CREATE MODE
-  if (!project?.id) {
-    toast({
-      title: 'Missing project',
-      description: 'Select a project before creating cards.',
-      variant: 'destructive',
-    });
-    return;
-  }
-
-  // Decide which column the new card belongs to
-  const column = data.column || defaultColumn || 'backlog';
-  const position = cards.filter(c => c.column === column).length;
-
-  // Build a local optimistic card; keep board-only metadata client-side
-  const tempId = `temp-${Date.now()}`;
-  const optimistic: ElicitationCard = {
-    id: tempId,
-    title: data.title!.trim(),
-    description: data.description?.trim(),
-    column,
-    position,
-    priority: data.priority || 'medium',
-    tags: data.tags || [],
-    createdBy: 'pending', // this will be replaced by server result
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
   };
-
-  // Optimistic insert
-  setCards(prev => [...prev, optimistic]);
-
-  try {
-    // Send only fields your backend expects; it adds createdBy from JWT
-    const created = await ElicitationService.create({
-      projectId: project.id,
-      title: optimistic.title,
-      description: optimistic.description,
-    });
-
-    // Convert server item to a card, then merge back your board-only metadata
-    const serverCard = apiItemToCard(created as any, position);
-    const merged: ElicitationCard = {
-      ...serverCard,
-      column: optimistic.column,
-      position: optimistic.position,
-      priority: optimistic.priority,
-      tags: optimistic.tags,
-    };
-
-    // Replace temp with merged server-backed card
-    setCards(prev =>
-      prev.map(c => (c.id === tempId ? merged : c))
-    );
-
-    toast({ title: 'Card Created', description: 'New card has been added.' });
-  } catch (err: any) {
-    // Remove temp if API failed
-    setCards(prev => prev.filter(c => c.id !== tempId));
-    toast({
-      title: 'Create failed',
-      description: err?.message ?? 'Could not create the item.',
-      variant: 'destructive',
-    });
-  }
-};
-
 
   const handleConvertCard = (card: ElicitationCard) => {
     toast({
@@ -387,7 +411,7 @@ const handleSaveCard = async (data: Partial<ElicitationCard>) => {
       {/* Kanban Board */}
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 h-[calc(100vh-280px)]">
-          {columns.map((col) => (
+          {columns.map(col => (
             <KanbanColumn
               key={col.id}
               column={col.id}
@@ -405,7 +429,12 @@ const handleSaveCard = async (data: Partial<ElicitationCard>) => {
         <DragOverlay>
           {activeCard ? (
             <div className="rotate-3 scale-105">
-              <KanbanCard card={activeCard} onEdit={() => {}} onDelete={() => {}} onConvert={() => {}} />
+              <KanbanCard
+                card={activeCard}
+                onEdit={() => {}}
+                onDelete={() => {}}
+                onConvert={() => {}}
+              />
             </div>
           ) : null}
         </DragOverlay>

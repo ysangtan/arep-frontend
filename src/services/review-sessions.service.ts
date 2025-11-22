@@ -1,30 +1,30 @@
 // src/services/review-sessions.service.ts
-import api from './api';
+import api from "./api";
 
 // ---------- Enums (match backend string literals) ----------
 export enum SessionStatus {
-  SCHEDULED = 'scheduled',
-  ACTIVE = 'active',
-  PAUSED = 'paused',
-  COMPLETED = 'completed',
+  SCHEDULED = "scheduled",
+  ACTIVE = "active",
+  PAUSED = "paused",
+  COMPLETED = "completed",
 }
 
 export enum VoteType {
-  APPROVE = 'approve',
-  REJECT = 'reject',
-  NEEDS_DISCUSSION = 'needs-discussion',
+  APPROVE = "approve",
+  REJECT = "reject",
+  NEEDS_DISCUSSION = "needs-discussion",
 }
 
 // ---------- Subdocuments ----------
 export interface Participant {
-  userId: string;           // ObjectId as string on FE
+  userId: string; // ObjectId as string on FE
   isOnline?: boolean;
   lastSeen?: string | Date;
 }
 
 export interface RequirementReview {
-  requirementId: string;    // ObjectId as string
-  finalDecision?: 'approved' | 'rejected' | 'deferred';
+  requirementId: string; // ObjectId as string
+  finalDecision?: "approved" | "rejected" | "deferred";
   reviewedAt?: string | Date;
 }
 
@@ -43,7 +43,7 @@ export interface ReviewSession {
   scheduledAt?: string | Date;
   startedAt?: string | Date;
   completedAt?: string | Date;
-  createdAt: string;        // ISO strings from backend
+  createdAt: string; // ISO strings from backend
   updatedAt: string;
 }
 
@@ -85,7 +85,7 @@ function unwrap<T>(payload: T | ApiWrap<T>): T {
   return (payload as any)?.data ?? (payload as T);
 }
 
-const base = '/review-sessions';
+const base = "/review-sessions";
 
 // ---------- Service ----------
 export const ReviewSessionsService = {
@@ -99,7 +99,9 @@ export const ReviewSessionsService = {
       ? `${base}?projectId=${encodeURIComponent(projectId)}`
       : base;
 
-    const { data } = await api.get<ReviewSession[] | ListEnvelope<ReviewSession>>(url);
+    const { data } = await api.get<
+      ReviewSession[] | ListEnvelope<ReviewSession>
+    >(url);
     return unwrap(data);
   },
 
@@ -120,10 +122,14 @@ export const ReviewSessionsService = {
     requirementId?: string
   ): Promise<SessionVote[] | ListEnvelope<SessionVote>> {
     const url = requirementId
-      ? `${base}/${encodeURIComponent(sessionId)}/votes?requirementId=${encodeURIComponent(requirementId)}`
+      ? `${base}/${encodeURIComponent(
+          sessionId
+        )}/votes?requirementId=${encodeURIComponent(requirementId)}`
       : `${base}/${encodeURIComponent(sessionId)}/votes`;
 
-    const { data } = await api.get<SessionVote[] | ListEnvelope<SessionVote>>(url);
+    const { data } = await api.get<SessionVote[] | ListEnvelope<SessionVote>>(
+      url
+    );
     return unwrap(data);
   },
 
@@ -140,9 +146,27 @@ export const ReviewSessionsService = {
    * PATCH /review-sessions/:id/start
    */
   async startSession(id: string): Promise<ReviewSession> {
-    const { data } = await api.patch<ReviewSession>(`${base}/${encodeURIComponent(id)}/start`, {});
+    const { data } = await api.patch<ReviewSession>(
+      `${base}/${encodeURIComponent(id)}/start`,
+      {}
+    );
     return unwrap(data);
   },
+ // Keep everything else as you have it; just make castVote typed & consistent
+async castVote(
+  sessionId: string,
+  requirementId: string,
+  voteType: VoteType | string,
+  comment?: string
+): Promise<SessionVote> {
+  console.log('[ReviewSessionsService] POST castVote', { sessionId, requirementId, voteType, comment });
+  const { data } = await api.post<SessionVote>(
+    `/review-sessions/${encodeURIComponent(sessionId)}/votes`,
+    { requirementId, voteType, comment }
+  );
+  return data;
+},
+
 };
 
 export default ReviewSessionsService;

@@ -21,7 +21,11 @@ export interface CreateElicitationDto {
 export interface UpdateElicitationDto {
   title?: string;
   description?: string;
+  // ✅ allow drag persistence
+  column?: 'backlog' | 'in-progress' | 'review' | 'done';
+  position?: number;
 }
+
 
 export interface ListEnvelope<T> {
   items: T[];

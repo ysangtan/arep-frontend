@@ -30,66 +30,101 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useProject } from '@/contexts/ProjectContext';
 
-// ---------- Display helpers (replace with real user directory if available) ----------
-const resolveUserName = (userId: string) => `User ${userId.slice(0, 4)}`;
+// ---------- Display helpers ----------
+// --- helpers ---
+type AnyUserRef = string | { _id?: string; fullName?: string; email?: string };
+
+// Extract a string id from either a raw id or a populated user object
+const getUserIdVal = (u: AnyUserRef): string =>
+  typeof u === 'string' ? u : (u?._id ?? '');
+
+// Human-friendly display name (prefer fullName if populated, else fallback)
+const getUserDisplay = (u: AnyUserRef): string => {
+  if (typeof u === 'object') {
+    if (u?.fullName && typeof u.fullName === 'string') return u.fullName;
+    const id = u?._id ?? '';
+    return id ? `User ${String(id).slice(0, 4)}` : 'User';
+  }
+  return u ? `User ${String(u).slice(0, 4)}` : 'User';
+};
+
 const resolveUserRole = (_userId: string) => 'Reviewer';
 
-// ---------- Adapters from service models to UI component prop types ----------
-const toUiVote = (v: SessionVote): UiVote => ({
-  userId: v.userId,
-  userName: resolveUserName(v.userId), // REQUIRED by VotingPanel
-  voteType: v.voteType,
-  timestamp: v.createdAt,
-});
+// Votes → UI
+const toUiVote = (v: SessionVote): UiVote => {
+  const userRef = v.userId as AnyUserRef;
+  return {
+    userId: getUserIdVal(userRef),
+    userName: getUserDisplay(userRef),
+    voteType: v.voteType,
+    timestamp: v.createdAt,
+  };
+};
 
-const toUiComment = (v: SessionVote): UiComment | null =>
-  v.comment
-    ? {
-        id: v._id,
-        userId: v.userId,
-        userName: resolveUserName(v.userId), // REQUIRED by DiscussionThread
-        content: v.comment,
-        timestamp: v.createdAt,
-      }
-    : null;
+// Comments (stored on SessionVote.comment) → UI
+const toUiComment = (v: SessionVote): UiComment | null => {
+  if (!v.comment) return null;
+  const userRef = v.userId as AnyUserRef;
+  return {
+    id: v._id,
+    userId: getUserIdVal(userRef),
+    userName: getUserDisplay(userRef),
+    content: v.comment,
+    timestamp: v.createdAt,
+  };
+};
 
-const toUiParticipant = (p: ServiceReviewSession['participants'][number]): UiParticipant => ({
-  id: String(p.userId),
-  name: resolveUserName(String(p.userId)),
-  role: resolveUserRole(String(p.userId)), // REQUIRED by ParticipantList
-  isOnline: !!p.isOnline,
-  lastSeen: p.lastSeen
-    ? (p.lastSeen instanceof Date ? p.lastSeen.toISOString() : String(p.lastSeen))
-    : undefined,
-});
+// Participants → UI
+const toUiParticipant = (
+  p: ServiceReviewSession['participants'][number]
+): UiParticipant => {
+  const userRef = p.userId as AnyUserRef;
+  const id = getUserIdVal(userRef);
+  return {
+    id,
+    name: getUserDisplay(userRef),
+    role: resolveUserRole(id),
+    isOnline: !!p.isOnline,
+    lastSeen: p.lastSeen
+      ? p.lastSeen instanceof Date
+        ? p.lastSeen.toISOString()
+        : String(p.lastSeen)
+      : undefined,
+  };
+};
 
 export default function ReviewSessions() {
   const [sessions, setSessions] = useState<ServiceReviewSession[]>([]);
   const [activeSession, setActiveSession] = useState<ServiceReviewSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreatorOpen, setIsCreatorOpen] = useState(false);
-  const [votes, setVotes] = useState<SessionVote[]>([]); // votes for the current requirement
+  const [votes, setVotes] = useState<SessionVote[]>([]);
   const [loadingVotes, setLoadingVotes] = useState(false);
-
+  const {project}=useProject()
   // ---------- Load sessions ----------
-  const loadSessions = async () => {
-    setIsLoading(true);
-    try {
-      const data = await ReviewSessionsService.findAll(); // or pass projectId if needed
-      const list = Array.isArray(data) ? data : data.items;
-      setSessions(list);
-    } catch (error) {
-      toast.error('Failed to load review sessions');
-      console.error('[ReviewSessions] loadSessions error:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+ const loadSessions = async (pid?: string) => {
+  setIsLoading(true);
+  try {
+    // if you want to require a project to be selected, guard here:
+    // if (!pid) { setSessions([]); return; }
 
-  useEffect(() => {
-    loadSessions();
-  }, []);
+    const data = await ReviewSessionsService.findAll(pid); // ✅ pass projectId
+    const list = Array.isArray(data) ? data : data.items;
+    setSessions(list);
+  } catch (error) {
+    toast.error('Failed to load review sessions');
+    console.error('[ReviewSessions] loadSessions error:', error);
+  } finally {
+    setIsLoading(false);
+  }
+};
+
+// Refetch when the active project changes
+useEffect(() => {
+  loadSessions(project?.id); // ✅ uses current project id (or undefined if none)
+}, [project?.id]);
 
   // ---------- Current requirement id for active session ----------
   const currentRequirementId = useMemo(() => {
@@ -98,30 +133,34 @@ export default function ReviewSessions() {
   }, [activeSession]);
 
   // ---------- Fetch votes for the current requirement ----------
+  const refreshVotes = async (sessionId: string, requirementId: string) => {
+    try {
+      setLoadingVotes(true);
+      console.log('[ReviewSessions] 🔄 refreshVotes()', { sessionId, requirementId });
+      const data = await ReviewSessionsService.getVotes(sessionId, requirementId);
+      const list = Array.isArray(data) ? data : data.items;
+      setVotes(list);
+      console.log('[ReviewSessions] ✅ votes refreshed:', list);
+    } catch (error) {
+      console.error('[ReviewSessions] refreshVotes error:', error);
+    } finally {
+      setLoadingVotes(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchVotes = async () => {
-      if (!activeSession || !currentRequirementId) {
-        setVotes([]);
-        return;
-      }
-      try {
-        setLoadingVotes(true);
-        const data = await ReviewSessionsService.getVotes(activeSession._id, currentRequirementId);
-        const list = Array.isArray(data) ? data : data.items;
-        setVotes(list);
-      } catch (error) {
-        toast.error('Failed to load votes');
-        console.error('[ReviewSessions] getVotes error:', error);
-      } finally {
-        setLoadingVotes(false);
-      }
-    };
-    fetchVotes();
+    if (!activeSession || !currentRequirementId) {
+      setVotes([]);
+      return;
+    }
+    refreshVotes(activeSession._id, currentRequirementId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSession?._id, activeSession?.currentRequirementIndex, currentRequirementId]);
 
   // ---------- Actions ----------
   const handleStartSession = async (sessionId: string) => {
     try {
+      console.log('[ReviewSessions] ▶ startSession', { sessionId });
       const updated = await ReviewSessionsService.startSession(sessionId);
       setActiveSession(updated);
       setSessions(prev => prev.map(s => (s._id === sessionId ? updated : s)));
@@ -132,12 +171,27 @@ export default function ReviewSessions() {
     }
   };
 
-  // No server endpoint for voting yet -> optimistic local update only
-  const handleVote = (voteType: VoteType) => {
-    if (!activeSession || !currentRequirementId) return;
+  // ✅ REST-only vote (no websockets)
+  const handleVote = async (voteType: VoteType) => {
+    console.log('[ReviewSessions] 🟦 handleVote() called');
+    console.log('  → voteType:', voteType);
+    console.log('  → sessionId:', activeSession?._id);
+    console.log('  → requirementId:', currentRequirementId);
 
-    const me = 'me'; // TODO: replace with real auth userId
-    const newVote: SessionVote = {
+    if (!activeSession) {
+      console.warn('[ReviewSessions] ❌ No activeSession');
+      toast.error('Missing session. Please re-open the session.');
+      return;
+    }
+    if (!currentRequirementId) {
+      console.warn('[ReviewSessions] ❌ No currentRequirementId');
+      toast.error('Missing requirement. Please re-open the session.');
+      return;
+    }
+
+    // Optional optimistic UI: replace current user's vote locally
+    const me = 'me'; // ⬅ replace with real auth userId when available
+    const optimistic: SessionVote = {
       _id: `temp-${Date.now()}`,
       sessionId: activeSession._id,
       requirementId: currentRequirementId,
@@ -146,21 +200,44 @@ export default function ReviewSessions() {
       comment: undefined,
       createdAt: new Date().toISOString(),
     };
+    setVotes(prev => [...prev.filter(v => v.userId !== me), optimistic]);
 
-    setVotes(prev => {
-      // one vote per user — replace existing user's vote
-      const others = prev.filter(v => v.userId !== me);
-      return [...others, newVote];
-    });
-    toast.info('Vote recorded locally (add POST /review-sessions/:id/votes to persist).');
+    try {
+      console.log(
+        `[ReviewSessions] 📡 REST castVote → sessionId=${activeSession._id}, requirementId=${currentRequirementId}, voteType=${voteType}`
+      );
+      const res = await ReviewSessionsService.castVote(
+        activeSession._id,
+        currentRequirementId,
+        voteType
+      );
+      console.log('[ReviewSessions] ✅ castVote response:', res);
+
+      toast.success(`Voted: ${voteType.replace('-', ' ')}`);
+
+      console.log('[ReviewSessions] 🔄 Refreshing votes from API…');
+      await refreshVotes(activeSession._id, currentRequirementId);
+      console.log('[ReviewSessions] ✅ Refresh complete');
+    } catch (error: any) {
+      console.error('[ReviewSessions] ❌ castVote error:', error);
+      if (error?.response) {
+        console.error('[ReviewSessions]   ↳ Response data:', error.response.data);
+        console.error('[ReviewSessions]   ↳ Status:', error.response.status);
+        console.error('[ReviewSessions]   ↳ Headers:', error.response.headers);
+      }
+      toast.error('Failed to submit vote');
+      // best-effort re-sync (to drop the optimistic vote if server failed)
+      await refreshVotes(activeSession._id, currentRequirementId);
+    }
   };
 
-  // No server endpoint for comments; we treat a "comment" as a SessionVote with comment text
-  const handleAddComment = (content: string, _mentions: string[], replyTo?: string) => {
+  // Treat comments as votes with comment text; keep REST or leave as local-only depending on API
+  const handleAddComment = async (content: string, _mentions: string[], _replyTo?: string) => {
+    // If you expose an endpoint for comments later, call it here.
+    // For now, just add a local "needs-discussion" entry for display.
     if (!activeSession || !currentRequirementId) return;
-
-    const me = 'me'; // TODO: replace with real auth userId
-    const newLocalComment: SessionVote = {
+    const me = 'me';
+    const optimistic: SessionVote = {
       _id: `temp-c-${Date.now()}`,
       sessionId: activeSession._id,
       requirementId: currentRequirementId,
@@ -169,9 +246,7 @@ export default function ReviewSessions() {
       comment: content,
       createdAt: new Date().toISOString(),
     };
-
-    setVotes(prev => [...prev, newLocalComment]);
-    toast.info('Comment added locally (add an endpoint to persist).');
+    setVotes(prev => [...prev, optimistic]);
   };
 
   const handleNextRequirement = () => {
@@ -190,7 +265,6 @@ export default function ReviewSessions() {
   };
 
   const handleCompleteSession = async () => {
-    // Not implemented in controller; keep UI feedback
     toast.info('Completion not implemented yet. Add PATCH /review-sessions/:id/complete.');
   };
 
@@ -236,9 +310,8 @@ export default function ReviewSessions() {
   if (activeSession) {
     const currentReqId = currentRequirementId || '';
 
-    // Adapt service data to UI component prop types (IMPORTANT for TS compatibility)
     const uiVotes: UiVote[] = votes.map(toUiVote);
-    const currentUserVote = uiVotes.find(v => v.userId === 'me')?.voteType;
+    const currentUserVote = uiVotes.find(v => v.userId === 'me')?.voteType; // replace with real userId
     const uiComments: UiComment[] = votes.map(toUiComment).filter(Boolean) as UiComment[];
     const uiParticipants: UiParticipant[] = activeSession.participants.map(toUiParticipant);
 
@@ -276,7 +349,6 @@ export default function ReviewSessions() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Requirement details placeholder (fetch by id if needed) */}
             <Card>
               <CardHeader>
                 <div className="flex items-start justify-between">
@@ -300,6 +372,7 @@ export default function ReviewSessions() {
 
             {/* Voting Panel */}
             <VotingPanel
+              sessionId={activeSession._id}
               requirementId={currentReqId}
               requirementTitle={currentReqId}
               votes={uiVotes}

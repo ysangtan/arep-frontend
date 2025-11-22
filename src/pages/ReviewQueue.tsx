@@ -33,6 +33,7 @@ import {
   Filter,
   Users,
 } from 'lucide-react';
+import { useProject } from '@/contexts/ProjectContext';
 
 type StatusFilter = 'all' | 'pending' | 'in-progress' | 'completed';
 
@@ -47,7 +48,7 @@ const ReviewQueue = () => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [error, setError] = useState<string | null>(null);
-
+const { project } = useProject();
   // ---- Load reviews from API ----
   useEffect(() => {
     let mounted = true;

@@ -23,11 +23,12 @@ interface VotingPanelProps {
 
 // Minimal shape from API to map into UI votes (keeps us decoupled from svc enums)
 type ApiVote = {
-  userId: string;
-  voteType: string;   // will be asserted to VoteType
+  userId: string | { _id: string; fullName?: string; email?: string };
+  voteType: string;
   createdAt: string;
   comment?: string;
 };
+
 
 export function VotingPanel({
   sessionId,
@@ -47,13 +48,27 @@ export function VotingPanel({
     setLocalVotes(votes);
   }, [votes]);
 
-  const toUiVote = (v: ApiVote): UiVote => ({
-    userId: v.userId,
-    userName: `User ${v.userId.slice(0, 4)}`,
-    voteType: v.voteType as VoteType, // map API string -> UI union
-    timestamp: v.createdAt,
-    comment: v.comment,
-  });
+type AnyUserRef = string | { _id?: string; fullName?: string; email?: string };
+
+const getUserIdVal = (u: AnyUserRef): string =>
+  typeof u === 'string' ? u : (u?._id ?? '');
+
+const getUserDisplay = (u: AnyUserRef): string => {
+  if (typeof u === 'object') {
+    if (u?.fullName && typeof u.fullName === 'string') return u.fullName;
+    const id = u?._id ?? '';
+    return id ? `User ${id.slice(0, 4)}` : 'User';
+  }
+  return u ? `User ${String(u).slice(0, 4)}` : 'User';
+};
+
+const toUiVote = (v: ApiVote): UiVote => ({
+  userId: getUserIdVal(v.userId as AnyUserRef),
+  userName: getUserDisplay(v.userId as AnyUserRef),
+  voteType: v.voteType as VoteType,
+  timestamp: v.createdAt,
+  comment: v.comment,
+});
 
   const refreshFromApi = async () => {
     if (!sessionId || !requirementId) return;
@@ -85,19 +100,69 @@ export function VotingPanel({
   const rejectPercent = totalParticipants > 0 ? (rejectCount / totalParticipants) * 100 : 0;
   const discussPercent = totalParticipants > 0 ? (discussCount / totalParticipants) * 100 : 0;
 
-  const handleVote = async (voteType: VoteType) => {
-    setIsVoting(true);
-    try {
-      await Promise.resolve(onVote(voteType)); // parent handles persistence/optimistic update
-      toast.success(`Voted: ${voteType.replace('-', ' ')}`);
-      if (sessionId) await refreshFromApi();   // re-sync from server if possible
-    } catch (error) {
-      console.error('[VotingPanel] submit vote error:', error);
-      toast.error('Failed to submit vote');
-    } finally {
-      setIsVoting(false);
+const handleVote = async (voteType: VoteType) => {
+  console.log('[VotingPanel] 🟦 handleVote() called');
+  console.log('  → voteType:', voteType);
+  console.log('  → sessionId:', sessionId);
+  console.log('  → requirementId:', requirementId);
+
+  if (!sessionId) {
+    console.warn('[VotingPanel] ❌ Missing sessionId');
+    toast.error('Missing session. Please re-open the session.');
+    return;
+  }
+  if (!requirementId) {
+    console.warn('[VotingPanel] ❌ Missing requirementId');
+    toast.error('Missing requirement. Please re-open the session.');
+    return;
+  }
+  if (isVoting) {
+    console.warn('[VotingPanel] ⏸️ Vote already in progress. Ignoring duplicate click.');
+    return;
+  }
+
+  setIsVoting(true);
+  try {
+    console.log('[VotingPanel] ⏳ Starting vote submission…');
+
+    if (onVote) {
+      console.log('[VotingPanel] ⚙️ Triggering onVote callback (optimistic UI)');
+      await Promise.resolve(onVote(voteType));
     }
-  };
+
+    console.log(
+      `[VotingPanel] 📡 REST → POST /review-sessions/${sessionId}/votes { requirementId: ${requirementId}, voteType: ${voteType} }`
+    );
+
+    const response = await ReviewSessionsService.castVote(
+      sessionId,
+      requirementId,
+      voteType
+    );
+
+    console.log('[VotingPanel] ✅ REST vote response:', response);
+    toast.success(`Voted: ${voteType.replace('-', ' ')}`);
+
+    console.log('[VotingPanel] 🔄 Refreshing votes from API…');
+    await refreshFromApi();
+    console.log('[VotingPanel] ✅ Refresh complete');
+  } catch (error: any) {
+    console.error('[VotingPanel] ❌ submit vote error:', error);
+    if (error?.response) {
+      console.error('[VotingPanel]   ↳ Response data:', error.response.data);
+      console.error('[VotingPanel]   ↳ Status:', error.response.status);
+      console.error('[VotingPanel]   ↳ Headers:', error.response.headers);
+    }
+    toast.error('Failed to submit vote');
+  } finally {
+    console.log('[VotingPanel] 🏁 handleVote() finished, resetting isVoting');
+    setIsVoting(false);
+  }
+};
+
+
+
+
 
   return (
     <Card>
