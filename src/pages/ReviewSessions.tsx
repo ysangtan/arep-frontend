@@ -1,25 +1,31 @@
 // src/pages/reviews/ReviewSessions.tsx
-import { useEffect, useMemo, useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { ReviewSessionCreator } from '@/components/review-sessions/ReviewSessionCreator';
-import { ParticipantList } from '@/components/review-sessions/ParticipantList';
-import { VotingPanel } from '@/components/review-sessions/VotingPanel';
-import { DiscussionThread } from '@/components/review-sessions/DiscussionThread';
+import { useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { ReviewSessionCreator } from "@/components/review-sessions/ReviewSessionCreator";
+import { ParticipantList } from "@/components/review-sessions/ParticipantList";
+import { VotingPanel } from "@/components/review-sessions/VotingPanel";
+import { DiscussionThread } from "@/components/review-sessions/DiscussionThread";
 
 import {
   ReviewSessionsService,
   ReviewSession as ServiceReviewSession,
   VoteType,
   SessionVote,
-} from '@/services/review-sessions.service';
+} from "@/services/review-sessions.service";
 
 import {
   Vote as UiVote,
   Comment as UiComment,
   Participant as UiParticipant,
-} from '@/types/reviewSession.types';
+} from "@/types/reviewSession.types";
 
 import {
   Plus,
@@ -28,9 +34,10 @@ import {
   CheckCircle,
   Download,
   ArrowLeft,
-} from 'lucide-react';
-import { toast } from 'sonner';
-import { useProject } from '@/contexts/ProjectContext';
+} from "lucide-react";
+import { toast } from "sonner";
+import { useProject } from "@/contexts/ProjectContext";
+import { useNavigate } from "react-router-dom";
 
 // ---------- Display helpers ----------
 // --- helpers ---
@@ -38,19 +45,19 @@ type AnyUserRef = string | { _id?: string; fullName?: string; email?: string };
 
 // Extract a string id from either a raw id or a populated user object
 const getUserIdVal = (u: AnyUserRef): string =>
-  typeof u === 'string' ? u : (u?._id ?? '');
+  typeof u === "string" ? u : u?._id ?? "";
 
 // Human-friendly display name (prefer fullName if populated, else fallback)
 const getUserDisplay = (u: AnyUserRef): string => {
-  if (typeof u === 'object') {
-    if (u?.fullName && typeof u.fullName === 'string') return u.fullName;
-    const id = u?._id ?? '';
-    return id ? `User ${String(id).slice(0, 4)}` : 'User';
+  if (typeof u === "object") {
+    if (u?.fullName && typeof u.fullName === "string") return u.fullName;
+    const id = u?._id ?? "";
+    return id ? `User ${String(id).slice(0, 4)}` : "User";
   }
-  return u ? `User ${String(u).slice(0, 4)}` : 'User';
+  return u ? `User ${String(u).slice(0, 4)}` : "User";
 };
 
-const resolveUserRole = (_userId: string) => 'Reviewer';
+const resolveUserRole = (_userId: string) => "Reviewer";
 
 // Votes → UI
 const toUiVote = (v: SessionVote): UiVote => {
@@ -78,7 +85,7 @@ const toUiComment = (v: SessionVote): UiComment | null => {
 
 // Participants → UI
 const toUiParticipant = (
-  p: ServiceReviewSession['participants'][number]
+  p: ServiceReviewSession["participants"][number]
 ): UiParticipant => {
   const userRef = p.userId as AnyUserRef;
   const id = getUserIdVal(userRef);
@@ -97,34 +104,37 @@ const toUiParticipant = (
 
 export default function ReviewSessions() {
   const [sessions, setSessions] = useState<ServiceReviewSession[]>([]);
-  const [activeSession, setActiveSession] = useState<ServiceReviewSession | null>(null);
+  const [activeSession, setActiveSession] =
+    useState<ServiceReviewSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreatorOpen, setIsCreatorOpen] = useState(false);
   const [votes, setVotes] = useState<SessionVote[]>([]);
   const [loadingVotes, setLoadingVotes] = useState(false);
-  const {project}=useProject()
+  const { project } = useProject();
+  const navigate = useNavigate();
+
   // ---------- Load sessions ----------
- const loadSessions = async (pid?: string) => {
-  setIsLoading(true);
-  try {
-    // if you want to require a project to be selected, guard here:
-    // if (!pid) { setSessions([]); return; }
+  const loadSessions = async () => {
+    setIsLoading(true);
+    try {
+      // if you want to require a project to be selected, guard here:
+      // if (!pid) { setSessions([]); return; }
+      const pid = project?.id;
+      const data = await ReviewSessionsService.findAll(pid); // ✅ pass projectId
+      const list = Array.isArray(data) ? data : data.items;
+      setSessions(list);
+    } catch (error) {
+      toast.error("Failed to load review sessions");
+      console.error("[ReviewSessions] loadSessions error:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-    const data = await ReviewSessionsService.findAll(pid); // ✅ pass projectId
-    const list = Array.isArray(data) ? data : data.items;
-    setSessions(list);
-  } catch (error) {
-    toast.error('Failed to load review sessions');
-    console.error('[ReviewSessions] loadSessions error:', error);
-  } finally {
-    setIsLoading(false);
-  }
-};
-
-// Refetch when the active project changes
-useEffect(() => {
-  loadSessions(project?.id); // ✅ uses current project id (or undefined if none)
-}, [project?.id]);
+  // Refetch when the active project changes
+  useEffect(() => {
+    loadSessions(); // ✅ uses current project id (or undefined if none)
+  }, [project?.id]);
 
   // ---------- Current requirement id for active session ----------
   const currentRequirementId = useMemo(() => {
@@ -136,13 +146,19 @@ useEffect(() => {
   const refreshVotes = async (sessionId: string, requirementId: string) => {
     try {
       setLoadingVotes(true);
-      console.log('[ReviewSessions] 🔄 refreshVotes()', { sessionId, requirementId });
-      const data = await ReviewSessionsService.getVotes(sessionId, requirementId);
+      console.log("[ReviewSessions] 🔄 refreshVotes()", {
+        sessionId,
+        requirementId,
+      });
+      const data = await ReviewSessionsService.getVotes(
+        sessionId,
+        requirementId
+      );
       const list = Array.isArray(data) ? data : data.items;
       setVotes(list);
-      console.log('[ReviewSessions] ✅ votes refreshed:', list);
+      console.log("[ReviewSessions] ✅ votes refreshed:", list);
     } catch (error) {
-      console.error('[ReviewSessions] refreshVotes error:', error);
+      console.error("[ReviewSessions] refreshVotes error:", error);
     } finally {
       setLoadingVotes(false);
     }
@@ -155,42 +171,48 @@ useEffect(() => {
     }
     refreshVotes(activeSession._id, currentRequirementId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSession?._id, activeSession?.currentRequirementIndex, currentRequirementId]);
+  }, [
+    activeSession?._id,
+    activeSession?.currentRequirementIndex,
+    currentRequirementId,
+  ]);
 
   // ---------- Actions ----------
   const handleStartSession = async (sessionId: string) => {
     try {
-      console.log('[ReviewSessions] ▶ startSession', { sessionId });
+      console.log("[ReviewSessions] ▶ startSession", { sessionId });
       const updated = await ReviewSessionsService.startSession(sessionId);
       setActiveSession(updated);
-      setSessions(prev => prev.map(s => (s._id === sessionId ? updated : s)));
-      toast.success('Session started');
+      setSessions((prev) =>
+        prev.map((s) => (s._id === sessionId ? updated : s))
+      );
+      toast.success("Session started");
     } catch (error) {
-      toast.error('Failed to start session');
-      console.error('[ReviewSessions] startSession error:', error);
+      toast.error("Failed to start session");
+      console.error("[ReviewSessions] startSession error:", error);
     }
   };
 
   // ✅ REST-only vote (no websockets)
   const handleVote = async (voteType: VoteType) => {
-    console.log('[ReviewSessions] 🟦 handleVote() called');
-    console.log('  → voteType:', voteType);
-    console.log('  → sessionId:', activeSession?._id);
-    console.log('  → requirementId:', currentRequirementId);
+    console.log("[ReviewSessions] 🟦 handleVote() called");
+    console.log("  → voteType:", voteType);
+    console.log("  → sessionId:", activeSession?._id);
+    console.log("  → requirementId:", currentRequirementId);
 
     if (!activeSession) {
-      console.warn('[ReviewSessions] ❌ No activeSession');
-      toast.error('Missing session. Please re-open the session.');
+      console.warn("[ReviewSessions] ❌ No activeSession");
+      toast.error("Missing session. Please re-open the session.");
       return;
     }
     if (!currentRequirementId) {
-      console.warn('[ReviewSessions] ❌ No currentRequirementId');
-      toast.error('Missing requirement. Please re-open the session.');
+      console.warn("[ReviewSessions] ❌ No currentRequirementId");
+      toast.error("Missing requirement. Please re-open the session.");
       return;
     }
 
     // Optional optimistic UI: replace current user's vote locally
-    const me = 'me'; // ⬅ replace with real auth userId when available
+    const me = "me"; // ⬅ replace with real auth userId when available
     const optimistic: SessionVote = {
       _id: `temp-${Date.now()}`,
       sessionId: activeSession._id,
@@ -200,7 +222,7 @@ useEffect(() => {
       comment: undefined,
       createdAt: new Date().toISOString(),
     };
-    setVotes(prev => [...prev.filter(v => v.userId !== me), optimistic]);
+    setVotes((prev) => [...prev.filter((v) => v.userId !== me), optimistic]);
 
     try {
       console.log(
@@ -211,32 +233,39 @@ useEffect(() => {
         currentRequirementId,
         voteType
       );
-      console.log('[ReviewSessions] ✅ castVote response:', res);
+      console.log("[ReviewSessions] ✅ castVote response:", res);
 
-      toast.success(`Voted: ${voteType.replace('-', ' ')}`);
+      toast.success(`Voted: ${voteType.replace("-", " ")}`);
 
-      console.log('[ReviewSessions] 🔄 Refreshing votes from API…');
+      console.log("[ReviewSessions] 🔄 Refreshing votes from API…");
       await refreshVotes(activeSession._id, currentRequirementId);
-      console.log('[ReviewSessions] ✅ Refresh complete');
+      console.log("[ReviewSessions] ✅ Refresh complete");
     } catch (error: any) {
-      console.error('[ReviewSessions] ❌ castVote error:', error);
+      console.error("[ReviewSessions] ❌ castVote error:", error);
       if (error?.response) {
-        console.error('[ReviewSessions]   ↳ Response data:', error.response.data);
-        console.error('[ReviewSessions]   ↳ Status:', error.response.status);
-        console.error('[ReviewSessions]   ↳ Headers:', error.response.headers);
+        console.error(
+          "[ReviewSessions]   ↳ Response data:",
+          error.response.data
+        );
+        console.error("[ReviewSessions]   ↳ Status:", error.response.status);
+        console.error("[ReviewSessions]   ↳ Headers:", error.response.headers);
       }
-      toast.error('Failed to submit vote');
+      toast.error("Failed to submit vote");
       // best-effort re-sync (to drop the optimistic vote if server failed)
       await refreshVotes(activeSession._id, currentRequirementId);
     }
   };
 
   // Treat comments as votes with comment text; keep REST or leave as local-only depending on API
-  const handleAddComment = async (content: string, _mentions: string[], _replyTo?: string) => {
+  const handleAddComment = async (
+    content: string,
+    _mentions: string[],
+    _replyTo?: string
+  ) => {
     // If you expose an endpoint for comments later, call it here.
     // For now, just add a local "needs-discussion" entry for display.
     if (!activeSession || !currentRequirementId) return;
-    const me = 'me';
+    const me = "me";
     const optimistic: SessionVote = {
       _id: `temp-c-${Date.now()}`,
       sessionId: activeSession._id,
@@ -246,27 +275,57 @@ useEffect(() => {
       comment: content,
       createdAt: new Date().toISOString(),
     };
-    setVotes(prev => [...prev, optimistic]);
+    setVotes((prev) => [...prev, optimistic]);
   };
 
   const handleNextRequirement = () => {
     if (!activeSession) return;
 
-    if (activeSession.currentRequirementIndex < activeSession.requirementIds.length - 1) {
+    if (
+      activeSession.currentRequirementIndex <
+      activeSession.requirementIds.length - 1
+    ) {
       const updated = {
         ...activeSession,
         currentRequirementIndex: activeSession.currentRequirementIndex + 1,
       };
       setActiveSession(updated);
-      toast.success('Moved to next requirement');
+      toast.success("Moved to next requirement");
     } else {
-      toast.info('This is the last requirement');
+      toast.info("This is the last requirement");
     }
   };
 
-  const handleCompleteSession = async () => {
-    toast.info('Completion not implemented yet. Add PATCH /review-sessions/:id/complete.');
-  };
+  // Replace your current handleCompleteSession with this:
+ const handleCompleteSession = async () => {
+  if (!activeSession) {
+    toast.error('No active session to complete.');
+    return;
+  }
+
+  try {
+    console.log('[ReviewSessions] ✅ Completing session', activeSession._id);
+    const updated = await ReviewSessionsService.endSession(activeSession._id);
+
+    // Update list data first
+    setSessions(prev => prev.map(s => (s._id === updated._id ? updated : s)));
+
+    // Exit the detail view BEFORE any other re-renders that might autofocus
+    setActiveSession(null);
+
+    // Optionally refresh from API so list reflects latest state
+    await loadSessions();
+
+    // Optional: scroll to top so you land at the sessions header
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    toast.success('Session completed');
+  } catch (error) {
+    console.error('[ReviewSessions] endSession error:', error);
+    toast.error('Failed to complete session');
+  }
+};
+
 
   const handleExportSummary = () => {
     if (!activeSession) return;
@@ -280,9 +339,9 @@ useEffect(() => {
     };
 
     const json = JSON.stringify(summary, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
+    const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
     a.download = `session-summary-${activeSession._id}.json`;
     document.body.appendChild(a);
@@ -290,30 +349,33 @@ useEffect(() => {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    toast.success('Session summary exported');
+    toast.success("Session summary exported");
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'active':
-        return 'bg-green-100 text-green-700';
-      case 'scheduled':
-        return 'bg-blue-100 text-blue-700';
-      case 'completed':
-        return 'bg-gray-100 text-gray-700';
+      case "active":
+        return "bg-green-100 text-green-700";
+      case "scheduled":
+        return "bg-blue-100 text-blue-700";
+      case "completed":
+        return "bg-gray-100 text-gray-700";
       default:
-        return 'bg-gray-100 text-gray-700';
+        return "bg-gray-100 text-gray-700";
     }
   };
 
   // ---------- Active Session Screen ----------
   if (activeSession) {
-    const currentReqId = currentRequirementId || '';
+    const currentReqId = currentRequirementId || "";
 
     const uiVotes: UiVote[] = votes.map(toUiVote);
-    const currentUserVote = uiVotes.find(v => v.userId === 'me')?.voteType; // replace with real userId
-    const uiComments: UiComment[] = votes.map(toUiComment).filter(Boolean) as UiComment[];
-    const uiParticipants: UiParticipant[] = activeSession.participants.map(toUiParticipant);
+    const currentUserVote = uiVotes.find((v) => v.userId === "me")?.voteType; // replace with real userId
+    const uiComments: UiComment[] = votes
+      .map(toUiComment)
+      .filter(Boolean) as UiComment[];
+    const uiParticipants: UiParticipant[] =
+      activeSession.participants.map(toUiParticipant);
 
     return (
       <div className="space-y-6 p-6">
@@ -326,7 +388,8 @@ useEffect(() => {
             <div>
               <h1 className="text-2xl font-bold">{activeSession.name}</h1>
               <p className="text-muted-foreground">
-                Requirement {activeSession.currentRequirementIndex + 1} of {activeSession.requirementIds.length}
+                Requirement {activeSession.currentRequirementIndex + 1} of{" "}
+                {activeSession.requirementIds.length}
               </p>
             </div>
           </div>
@@ -354,7 +417,7 @@ useEffect(() => {
                 <div className="flex items-start justify-between">
                   <div>
                     <Badge variant="outline" className="mb-2">
-                      {currentReqId || '—'}
+                      {currentReqId || "—"}
                     </Badge>
                     <CardTitle>Requirement Details</CardTitle>
                     <CardDescription className="mt-2">
@@ -365,7 +428,9 @@ useEffect(() => {
               </CardHeader>
               <CardContent>
                 <div className="text-sm text-muted-foreground">
-                  {currentReqId ? 'Requirement content goes here.' : 'No requirement selected.'}
+                  {currentReqId
+                    ? "Requirement content goes here."
+                    : "No requirement selected."}
                 </div>
               </CardContent>
             </Card>
@@ -414,7 +479,9 @@ useEffect(() => {
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Review Sessions</h1>
+          <h1 className="text-3xl font-bold text-foreground">
+            Review Sessions
+          </h1>
           <p className="text-muted-foreground mt-1">
             Facilitate collaborative requirement reviews with real-time voting
           </p>
@@ -426,14 +493,16 @@ useEffect(() => {
       </div>
 
       <div className="grid gap-4">
-        {sessions.map(session => (
+        {sessions.map((session) => (
           <Card key={session._id}>
             <CardHeader>
               <div className="flex items-start justify-between">
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <CardTitle>{session.name}</CardTitle>
-                    <Badge className={getStatusColor(session.status)}>{session.status}</Badge>
+                    <Badge className={getStatusColor(session.status)}>
+                      {session.status}
+                    </Badge>
                   </div>
                   <CardDescription>{session.description}</CardDescription>
                 </div>
@@ -446,16 +515,21 @@ useEffect(() => {
                   <span>•</span>
                   <span>{session.participants.length} participants</span>
                   <span>•</span>
-                  <span>{session.reviews?.length ?? 0} / {session.requirementIds.length} reviewed</span>
+                  <span>
+                    {session.reviews?.length ?? 0} /{" "}
+                    {session.requirementIds.length} reviewed
+                  </span>
                 </div>
-                {session.status === 'scheduled' && (
+                {session.status === "scheduled" && (
                   <Button onClick={() => handleStartSession(session._id)}>
                     <Play className="w-4 h-4 mr-2" />
                     Start Session
                   </Button>
                 )}
-                {session.status === 'active' && (
-                  <Button onClick={() => setActiveSession(session)}>Resume Session</Button>
+                {session.status === "active" && (
+                  <Button onClick={() => setActiveSession(session)}>
+                    Resume Session
+                  </Button>
                 )}
               </div>
             </CardContent>

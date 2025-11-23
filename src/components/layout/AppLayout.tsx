@@ -34,15 +34,15 @@ interface AppLayoutProps {
 }
 
 const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  // { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Projects', href: '/projects', icon: FolderKanban },
   { name: 'Requirements', href: '/requirements', icon: FileText },
   { name: 'Elicitation', href: '/elicitation', icon: Kanban },
   { name: 'Reviews', href: '/reviews', icon: ClipboardCheck },
   { name: 'Review Sessions', href: '/review-sessions', icon: Users2 },
   { name: 'Traceability', href: '/traceability', icon: Network },
-  { name: 'Impact Analysis', href: '/impact-analysis', icon: TrendingUp },
-  { name: 'Design System', href: '/design-system', icon: Palette },
+  // { name: 'Impact Analysis', href: '/impact-analysis', icon: TrendingUp },
+  // { name: 'Design System', href: '/design-system', icon: Palette },
 ];
 
 export function AppLayout({ children }: AppLayoutProps) {

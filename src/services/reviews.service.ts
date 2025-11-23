@@ -1,27 +1,27 @@
 // src/services/reviews.service.ts
-import api from './api';
+import api from "./api";
 
 // ---------- Enums (match backend string literals) ----------
 export enum ReviewStatus {
-  PENDING = 'pending',
-  IN_PROGRESS = 'in-progress',
-  COMPLETED = 'completed',
+  PENDING = "pending",
+  IN_PROGRESS = "in-progress",
+  COMPLETED = "completed",
 }
 
 export enum ReviewDecision {
-  APPROVE = 'approve',
-  REJECT = 'reject',
-  DEFER = 'defer',
+  APPROVE = "approve",
+  REJECT = "reject",
+  DEFER = "defer",
 }
 
 export enum ReviewType {
-  INDIVIDUAL = 'individual',
-  FACILITATED_SESSION = 'facilitated-session',
+  INDIVIDUAL = "individual",
+  FACILITATED_SESSION = "facilitated-session",
 }
 
 // ---------- Subdocuments ----------
 export interface Reviewer {
-  userId: string;              // ObjectId (as string on FE)
+  userId: string; // ObjectId (as string on FE)
   decision?: ReviewDecision;
   completedAt?: string | Date;
 }
@@ -37,16 +37,16 @@ export interface ReviewChecklist {
 // ---------- Main Models ----------
 export interface Review {
   _id: string;
-  requirementId: string;       // ObjectId (as string)
+  requirementId: string; // ObjectId (as string)
   type: ReviewType;
   status: ReviewStatus;
   reviewers: Reviewer[];
   dueDate?: string | Date;
   checklist?: ReviewChecklist;
-  createdBy: string;           // ObjectId (as string)
+  createdBy: string; // ObjectId (as string)
   completedAt?: string | Date;
-  createdAt: string;           // ISO string from backend
-  updatedAt: string;           // ISO string from backend
+  createdAt: string; // ISO string from backend
+  updatedAt: string; // ISO string from backend
 }
 
 export interface ReviewComment {
@@ -90,7 +90,7 @@ function unwrap<T>(payload: T | ApiWrap<T>): T {
   return (payload as any)?.data ?? (payload as T);
 }
 
-const base = '/reviews';
+const base = "/reviews";
 
 // ---------- Service ----------
 export const ReviewsService = {
@@ -124,9 +124,9 @@ export const ReviewsService = {
   async getComments(
     id: string
   ): Promise<ReviewComment[] | ListEnvelope<ReviewComment>> {
-    const { data } = await api.get<ReviewComment[] | ListEnvelope<ReviewComment>>(
-      `${base}/${id}/comments`
-    );
+    const { data } = await api.get<
+      ReviewComment[] | ListEnvelope<ReviewComment>
+    >(`${base}/${id}/comments`);
     return unwrap(data);
   },
 
@@ -143,9 +143,14 @@ export const ReviewsService = {
    * POST /reviews/:id/comments
    */
   async addComment(id: string, dto: AddCommentDto): Promise<ReviewComment> {
-    const { data } = await api.post<ReviewComment>(`${base}/${id}/comments`, dto);
+    const { data } = await api.post<ReviewComment>(
+      `${base}/${id}/comments`,
+      dto
+    );
     return unwrap(data);
   },
+
+ 
 };
 
 export default ReviewsService;

@@ -152,21 +152,29 @@ export const ReviewSessionsService = {
     );
     return unwrap(data);
   },
- // Keep everything else as you have it; just make castVote typed & consistent
-async castVote(
-  sessionId: string,
-  requirementId: string,
-  voteType: VoteType | string,
-  comment?: string
-): Promise<SessionVote> {
-  console.log('[ReviewSessionsService] POST castVote', { sessionId, requirementId, voteType, comment });
-  const { data } = await api.post<SessionVote>(
-    `/review-sessions/${encodeURIComponent(sessionId)}/votes`,
-    { requirementId, voteType, comment }
-  );
-  return data;
-},
-
+  // Keep everything else as you have it; just make castVote typed & consistent
+  async castVote(
+    sessionId: string,
+    requirementId: string,
+    voteType: VoteType | string,
+    comment?: string
+  ): Promise<SessionVote> {
+    console.log("[ReviewSessionsService] POST castVote", {
+      sessionId,
+      requirementId,
+      voteType,
+      comment,
+    });
+    const { data } = await api.post<SessionVote>(
+      `/review-sessions/${encodeURIComponent(sessionId)}/votes`,
+      { requirementId, voteType, comment }
+    );
+    return data;
+  },
+  async endSession(id: string) {
+    const { data } = await api.patch(`${base}/${id}/end`);
+    return unwrap(data);
+  },
 };
 
 export default ReviewSessionsService;

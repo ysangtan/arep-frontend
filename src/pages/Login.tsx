@@ -46,7 +46,7 @@ const Login = () => {
         title: 'Welcome back!',
         description: 'You have successfully logged in.',
       });
-      navigate('/dashboard');
+      navigate('/projects');
     } catch (err: any) {
       setError(extractErrorMessage(err));
     } finally {
